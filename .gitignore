@@ -1,0 +1,9 @@
+.vagrant/
+.kube/*.yaml
+.k3s-token
+*.log
+.vscode/
+.idea/
+.DS_Store
+
+scripts/lab-config.ps1

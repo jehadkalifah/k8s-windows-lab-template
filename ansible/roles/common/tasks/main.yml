@@ -1,0 +1,32 @@
+---
+- name: Install common packages
+  apt:
+    update_cache: true
+    name:
+      - curl
+      - jq
+      - ca-certificates
+      - git
+      - unzip
+      - open-iscsi
+      - nfs-common
+      - cryptsetup
+      - dmsetup
+    state: present
+
+- name: Enable iSCSI
+  systemd:
+    name: iscsid
+    enabled: true
+    state: started
+  failed_when: false
+
+- name: Configure hosts
+  copy:
+    dest: /etc/hosts
+    mode: "0644"
+    content: |
+      127.0.0.1 localhost
+      192.168.56.10 k3s-master
+      192.168.56.11 k3s-worker1
+      192.168.56.12 k3s-worker2

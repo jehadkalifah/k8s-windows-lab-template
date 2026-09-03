@@ -1,0 +1,29 @@
+# Copy this file to:
+#   scripts\lab-config.ps1
+#
+# lab-config.ps1 is ignored by Git so each Windows machine can have its own
+# physical adapter name and LAN IP range.
+
+# Exact VirtualBox bridged adapter name.
+# Find available adapters with:
+#   .\scripts\show-bridges.ps1
+$env:K8S_BRIDGE_ADAPTER = "Intel(R) Ethernet Connection"
+
+# Reserve a LAN range that:
+# 1. belongs to the same LAN/subnet as the bridged adapter,
+# 2. is NOT handed out by your router's DHCP server,
+# 3. is not used by another device.
+#
+# Example LAN:
+#   network:        192.168.1.0/24
+#   router:         192.168.1.1
+#   DHCP range:     192.168.1.50-192.168.1.199
+#   MetalLB range:  192.168.1.220-192.168.1.230
+$env:METALLB_POOL_START = "192.168.1.220"
+$env:METALLB_POOL_END   = "192.168.1.230"
+
+# Optional VM sizing overrides.
+# $env:K8S_MASTER_CPUS = "4"
+# $env:K8S_MASTER_MEM  = "6144"
+# $env:K8S_WORKER_CPUS = "2"
+# $env:K8S_WORKER_MEM  = "4096"

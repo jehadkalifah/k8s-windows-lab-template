@@ -1,0 +1,16 @@
+k3s_version: "v1.36.1+k3s1"
+istio_version: "1.31.0"
+gateway_api_version: "v1.6.0"
+longhorn_version: "1.12.1"
+metallb_version: "0.16.1"
+velero_chart_version: "12.1.0"
+
+metallb_pool_start: "192.168.1.220"
+metallb_pool_end: "192.168.1.230"
+
+minio_namespace: "velero"
+minio_bucket: "velero"
+minio_access_key: "velero"
+minio_secret_key: "velero-lab-secret-change-me"
+
+velero_namespace: "velero"
