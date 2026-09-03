@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 NODE_MGMT_IP="${1:?worker management IP is required}"
+FLANNEL_IFACE="${2:-eth1}"
 MASTER_IP="192.168.56.10"
 TOKEN_FILE="/vagrant/.k3s-token"
 for i in $(seq 1 60); do
@@ -15,6 +16,7 @@ TOKEN="$(cat "${TOKEN_FILE}")"
 mkdir -p /etc/rancher/k3s
 cat >/etc/rancher/k3s/config.yaml <<EOF
 node-ip: "${NODE_MGMT_IP}"
+flannel-iface: "${FLANNEL_IFACE}"
 server: "https://${MASTER_IP}:6443"
 token: "${TOKEN}"
 EOF

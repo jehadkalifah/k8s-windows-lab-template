@@ -16,20 +16,36 @@
 #   .\scripts\show-bridges.ps1
 $env:K8S_BRIDGE_ADAPTER = "TP-Link Wireless USB Adapter"
 
-# Static node IPs on the physical 192.168.10.0/24 LAN.
+# K3s/Flannel inter-node interface.
+# VirtualBox NIC order in this lab:
+#   eth0 = NAT/internet
+#   eth1 = host-only Kubernetes inter-node network (192.168.56.0/24)
+#   eth2 = bridged physical LAN (192.168.100.0/24)
+#
+# IMPORTANT: Flannel must use eth1. All VMs receive 10.0.2.15 on the NAT
+# adapter, so using eth0 breaks cross-node pod networking and cluster DNS.
+
+# Static node IPs on the physical 192.168.100.0/24 LAN.
 # Reserve/exclude these from your router DHCP pool.
-$env:K3S_MASTER_LAN_IP  = "192.168.10.210"
-$env:K3S_WORKER1_LAN_IP = "192.168.10.211"
-$env:K3S_WORKER2_LAN_IP = "192.168.10.212"
+
+# K3s / Flannel inter-node interface.
+# eth0 = VirtualBox NAT
+# eth1 = 192.168.56.0/24 host-only K3s inter-node network
+# eth2 = 192.168.100.0/24 bridged physical LAN
+$env:K3S_FLANNEL_IFACE = "eth1"
+
+$env:K3S_MASTER_LAN_IP  = "192.168.100.210"
+$env:K3S_WORKER1_LAN_IP = "192.168.100.211"
+$env:K3S_WORKER2_LAN_IP = "192.168.100.212"
 
 # Remote Kubernetes API endpoint.
 # This is included as a TLS SAN in the K3s API certificate.
-$env:K3S_API_LAN_IP = "192.168.10.210"
+$env:K3S_API_LAN_IP = "192.168.100.210"
 
 # MetalLB application LoadBalancer range.
 # Do NOT overlap this with DHCP or the node IPs above.
-$env:METALLB_POOL_START = "192.168.10.240"
-$env:METALLB_POOL_END   = "192.168.10.245"
+$env:METALLB_POOL_START = "192.168.100.240"
+$env:METALLB_POOL_END   = "192.168.100.245"
 
 # Optional VM sizing overrides.
 # $env:K8S_MASTER_CPUS = "4"

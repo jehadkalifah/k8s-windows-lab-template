@@ -1,10 +1,19 @@
 ---
-- name: Configure K3s master and install cluster platform components
+- name: Validate Stage 1 K3s base cluster
   hosts: local
   connection: local
-  gather_facts: true
+  gather_facts: false
   become: true
-  roles:
-    - common
-    - k3s_server
-    - platform
+
+  tasks:
+    - name: Wait for all nodes to be Ready
+      shell: kubectl wait --for=condition=Ready nodes --all --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Verify three nodes
+      shell: test "$(kubectl get nodes --no-headers | wc -l)" -eq 3
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false

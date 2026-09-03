@@ -13,11 +13,15 @@ Then configure:
   K3S_WORKER1_LAN_IP
   K3S_WORKER2_LAN_IP
   K3S_API_LAN_IP
+  K3S_FLANNEL_IFACE
   METALLB_POOL_START
   METALLB_POOL_END
 "@
 }
 . $configFile
+if ([string]::IsNullOrWhiteSpace($env:K3S_FLANNEL_IFACE)) {
+    $env:K3S_FLANNEL_IFACE = "eth1"
+}
 $required = @(
     "K8S_BRIDGE_ADAPTER",
     "K3S_MASTER_LAN_IP",

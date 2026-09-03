@@ -9,6 +9,7 @@ if (Test-Path $configFile) {
     Write-Host "PASS: scripts\lab-config.ps1 exists." -ForegroundColor Green
     . $configFile
     Write-Host "K8S_BRIDGE_ADAPTER = $env:K8S_BRIDGE_ADAPTER"
+    Write-Host "K3S_FLANNEL_IFACE = $env:K3S_FLANNEL_IFACE"
 }
 else {
     Write-Host "FAIL: scripts\lab-config.ps1 does not exist." -ForegroundColor Red
@@ -36,3 +37,11 @@ Write-Host ""
 Write-Host "show-bridges.ps1 only LISTS adapters; it does not set K8S_BRIDGE_ADAPTER." -ForegroundColor Yellow
 Write-Host "To load your config manually:"
 Write-Host "  . .\scripts\lab-config.ps1"
+
+
+Write-Host ""
+Write-Host "=== Flannel design ===" -ForegroundColor Cyan
+Write-Host "eth0 = VirtualBox NAT (must NOT be used for Flannel)"
+Write-Host "eth1 = 192.168.56.0/24 host-only inter-node network"
+Write-Host "eth2 = 192.168.100.0/24 physical LAN"
+Write-Host "Expected K3S_FLANNEL_IFACE = eth1"

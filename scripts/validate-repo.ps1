@@ -1,32 +1,76 @@
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+$failures = @()
 
-$inventory = Get-Content (Join-Path $RepoRoot "ansible\inventory.ini") -Raw
-$site = Get-Content (Join-Path $RepoRoot "ansible\site.yml") -Raw
+$required = @(
+  "scripts\up.ps1",
+  "scripts\deploy.ps1",
+  "scripts\deployment-status.ps1",
+  "scripts\remove-deployment.ps1",
+  "scripts\check-flannel.ps1",
+  "scripts\fix-flannel.ps1",
+  "deployments\istio\install.sh",
+  "deployments\istio\status.sh",
+  "deployments\istio\remove.sh",
+  "deployments\istio\manifests\gateway.yaml",
+  "deployments\istio\manifests\demo.yaml",
+  "deployments\cert-manager\install.sh",
+  "deployments\cert-manager\status.sh",
+  "deployments\cert-manager\remove.sh",
+  "deployments\cert-manager\manifests\selfsigned-test.yaml"
+)
+
+foreach ($file in $required) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing: $file"
+    }
+}
+
 $up = Get-Content (Join-Path $RepoRoot "scripts\up.ps1") -Raw
-
-$failed = $false
-
-if ($inventory -match "private_key" -or $inventory -match "\.vagrant/machines") {
-    Write-Host "FAIL: Ansible inventory still references Vagrant private keys." -ForegroundColor Red
-    $failed = $true
-} else {
-    Write-Host "PASS: Ansible inventory contains no Vagrant private-key dependency." -ForegroundColor Green
+if ($up -match "ansible-playbook") {
+    $failures += "Stage 1 up.ps1 still invokes platform Ansible."
 }
 
-if ($inventory -match "ansible_connection=local" -and $site -match "connection:\s*local") {
-    Write-Host "PASS: Ansible platform configuration runs locally on k3s-master." -ForegroundColor Green
-} else {
-    Write-Host "FAIL: Local-only Ansible configuration is missing." -ForegroundColor Red
-    $failed = $true
+$gateway = Get-Content (Join-Path $RepoRoot "deployments\istio\manifests\gateway.yaml") -Raw
+if ($gateway -notmatch "gatewayClassName:\s*istio") {
+    $failures += "Istio Gateway does not use gatewayClassName: istio."
 }
 
-if ($up -match "sudo ansible-playbook /vagrant/ansible/site.yml") {
-    Write-Host "PASS: up.ps1 invokes the local platform playbook." -ForegroundColor Green
-} else {
-    Write-Host "FAIL: up.ps1 does not invoke the expected playbook." -ForegroundColor Red
-    $failed = $true
+$install = Get-Content (Join-Path $RepoRoot "deployments\istio\install.sh") -Raw
+if ($install -notmatch "blob\.istio\.io/istio-release/charts") {
+    $failures += "Istio Helm repo is incorrect for 1.31."
 }
 
-if ($failed) { exit 1 }
+
+$certManagerInstall = Get-Content (Join-Path $RepoRoot "deployments\cert-manager\install.sh") -Raw
+if ($certManagerInstall -notmatch "oci://quay\.io/jetstack/charts/cert-manager") {
+    $failures += "cert-manager OCI chart source is incorrect."
+}
+if ($certManagerInstall -notmatch "v1\.21\.1") {
+    $failures += "cert-manager version pin v1.21.1 is missing."
+}
+
+
+$masterBootstrap = Get-Content (Join-Path $RepoRoot "ansible\bootstrap-master.sh") -Raw
+$workerJoin = Get-Content (Join-Path $RepoRoot "ansible\join-worker.sh") -Raw
+$vagrantfile = Get-Content (Join-Path $RepoRoot "Vagrantfile") -Raw
+
+if ($masterBootstrap -notmatch 'flannel-iface:\s*"\$\{FLANNEL_IFACE\}"') {
+    $failures += "Stage 1 bootstrap is missing flannel-iface on the K3s server."
+}
+if ($workerJoin -notmatch 'flannel-iface:\s*"\$\{FLANNEL_IFACE\}"') {
+    $failures += "Stage 1 worker join is missing flannel-iface."
+}
+if ($vagrantfile -notmatch 'K3S_FLANNEL_IFACE') {
+    $failures += "Vagrantfile is not passing K3S_FLANNEL_IFACE to K3s provisioning."
+}
+
+if ($failures.Count -gt 0) {
+    Write-Host "Repository validation FAILED" -ForegroundColor Red
+    $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }
+    exit 1
+}
+
 Write-Host "Repository validation passed." -ForegroundColor Green
+Write-Host "Stage 1: K3s cluster only." -ForegroundColor Green
+Write-Host "Stage 2: modular deployments; first component = istio." -ForegroundColor Green

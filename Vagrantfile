@@ -9,6 +9,7 @@ Vagrant.configure("2") do |config|
   mem_worker  = (ENV["K8S_WORKER_MEM"]  || "4096").to_i
 
   bridge_adapter = ENV["K8S_BRIDGE_ADAPTER"]
+  flannel_iface = ENV["K3S_FLANNEL_IFACE"] || "eth1"
   bridge_configured = !(bridge_adapter.nil? || bridge_adapter.strip.empty?)
 
   # Only commands that CREATE/RECONFIGURE networking require bridge variables.
@@ -63,6 +64,7 @@ Vagrant.configure("2") do |config|
 
       # NIC 1: Vagrant NAT for outbound internet.
       # NIC 2: stable host-only K3s management.
+      # Flannel VXLAN must use NIC 2 (eth1), never the NAT NIC (eth0).
       vm.vm.network "private_network", ip: node[:mgmt_ip]
 
       # NIC 3: physical LAN bridge for remote API and MetalLB L2.
@@ -84,7 +86,7 @@ Vagrant.configure("2") do |config|
       if node[:role] == "server"
         vm.vm.provision "shell",
           path: "ansible/bootstrap-master.sh",
-          args: [node[:mgmt_ip], ENV["K3S_API_LAN_IP"]],
+          args: [node[:mgmt_ip], ENV["K3S_API_LAN_IP"], flannel_iface],
           privileged: true
       else
         vm.vm.provision "shell",
@@ -93,7 +95,7 @@ Vagrant.configure("2") do |config|
 
         vm.vm.provision "shell",
           path: "ansible/join-worker.sh",
-          args: [node[:mgmt_ip]],
+          args: [node[:mgmt_ip], flannel_iface],
           privileged: true
       end
     end

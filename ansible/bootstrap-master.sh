@@ -3,6 +3,7 @@ set -euo pipefail
 
 MGMT_IP="${1:-192.168.56.10}"
 API_LAN_IP="${2:-}"
+FLANNEL_IFACE="${3:-eth1}"
 K3S_VERSION="v1.36.1+k3s1"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -37,6 +38,7 @@ mkdir -p /etc/rancher/k3s
 cat >/etc/rancher/k3s/config.yaml <<EOF
 node-ip: "${MGMT_IP}"
 advertise-address: "${MGMT_IP}"
+flannel-iface: "${FLANNEL_IFACE}"
 write-kubeconfig-mode: "0600"
 disable:
   - traefik

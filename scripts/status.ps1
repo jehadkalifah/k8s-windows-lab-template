@@ -1,5 +1,4 @@
 $ErrorActionPreference = "Stop"
-
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 Push-Location $RepoRoot
@@ -16,12 +15,21 @@ try {
     vagrant ssh k3s-master -c "sudo kubectl get ns"
 
     Write-Host ""
-    Write-Host "=== Platform pods ===" -ForegroundColor Cyan
+    Write-Host "=== Pods ===" -ForegroundColor Cyan
     vagrant ssh k3s-master -c "sudo kubectl get pods -A"
 
     Write-Host ""
-    Write-Host "=== LoadBalancer services ===" -ForegroundColor Cyan
-    vagrant ssh k3s-master -c "sudo kubectl get svc -A"
+    Write-Host "=== Flannel ===" -ForegroundColor Cyan
+    try {
+        & "$PSScriptRoot\check-flannel.ps1"
+    }
+    catch {
+        Write-Host "FLANNEL CHECK FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    }
+
+    Write-Host ""
+    Write-Host "Stage 2 status:" -ForegroundColor DarkGray
+    Write-Host "  .\scripts\deployment-status.ps1 istio"
 }
 finally {
     Pop-Location

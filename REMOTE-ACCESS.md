@@ -4,19 +4,19 @@ The K3s control plane uses the stable host-only address `192.168.56.10`
 internally and also exposes its API on the master's physical-LAN address:
 
 ```text
-https://192.168.10.210:6443
+https://192.168.100.210:6443
 ```
 
-The K3s API certificate contains `192.168.10.210` as a TLS SAN.
+The K3s API certificate contains `192.168.100.210` as a TLS SAN.
 
 ## LAN addresses
 
 ```text
-k3s-master:  192.168.10.210
-k3s-worker1: 192.168.10.211
-k3s-worker2: 192.168.10.212
+k3s-master:  192.168.100.210
+k3s-worker1: 192.168.100.211
+k3s-worker2: 192.168.100.212
 
-MetalLB:     192.168.10.240-192.168.10.245
+MetalLB:     192.168.100.240-192.168.100.245
 ```
 
 ## Before using direct Vagrant commands
@@ -28,7 +28,7 @@ MetalLB:     192.168.10.240-192.168.10.245
 ## Test the API
 
 ```powershell
-Test-NetConnection 192.168.10.210 -Port 6443
+Test-NetConnection 192.168.100.210 -Port 6443
 ```
 
 ## Kubeconfig
