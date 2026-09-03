@@ -382,7 +382,7 @@ If you create a `LoadBalancer` service, MetalLB can allocate an address from `19
 The kubeconfig is copied from the master VM to:
 
 ```text
-.kube\lab-kubeconfig.yaml
+<template-folder>.kube\lab-kubeconfig.yaml
 ```
 
 The server address is rewritten to:
@@ -431,21 +431,6 @@ vagrant halt
 ```powershell
 vagrant up
 ```
-
-### Destroy and rebuild
-
-```powershell
-.\scripts\destroy.ps1
-```
-
-Then:
-
-```powershell
-.\scripts\up.ps1
-```
-
-> Destroying the VMs removes their local Longhorn data and VM snapshots. Velero backups stored on the MinIO PVC inside the cluster are also destroyed. For backups that must survive a full cluster loss, change the backup storage location to an external S3-compatible service.
-
 ## Repository layout
 
 ```text
@@ -888,3 +873,167 @@ VirtualBox bridged networking over Wi-Fi can depend on the wireless adapter,
 driver and access point. Ethernet is generally the most predictable option for
 a bare-metal-style MetalLB L2 lab. If your Wi-Fi environment blocks or filters
 bridged/L2 behavior, use Ethernet or adjust the local network design.
+
+## Destroy the lab
+
+There are two supported ways to destroy the local Kubernetes lab.
+
+### Recommended: use `destroy.cmd`
+
+From the repository root:
+
+```powershell
+.\scripts\destroy.cmd
+```
+
+The launcher starts PowerShell with a **process-only execution-policy bypass** and then runs:
+
+```text
+scripts\destroy.ps1
+```
+
+This avoids the common Windows error:
+
+```text
+cannot be loaded because the file is not digitally signed
+```
+
+It does **not** permanently change the Windows PowerShell execution policy.
+
+You will be asked to confirm:
+
+```text
+This destroys all three VMs and their local cluster data.
+Type DESTROY to continue:
+```
+
+Type:
+
+```text
+DESTROY
+```
+
+The script then destroys:
+
+```text
+k3s-master
+k3s-worker1
+k3s-worker2
+```
+
+and removes generated local files such as:
+
+```text
+.kube\
+.k3s-token
+```
+
+It intentionally keeps:
+
+```text
+scripts\lab-config.ps1
+```
+
+so you can rebuild later using the same bridged adapter and MetalLB settings.
+
+### Alternative: run the PowerShell script directly
+
+If PowerShell already allows local scripts:
+
+```powershell
+.\scripts\destroy.ps1
+```
+
+If Windows blocks the script because it was downloaded from the internet, unblock the repository scripts first:
+
+```powershell
+Get-ChildItem .\scripts\*.ps1 -Recurse | Unblock-File
+```
+
+Then run:
+
+```powershell
+.\scripts\destroy.ps1
+```
+
+Or allow scripts only for the current PowerShell process:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\scripts\destroy.ps1
+```
+
+`-Scope Process` applies only to the current PowerShell session and is reset when that window is closed.
+
+### Destroy from inside the `scripts` directory
+
+If your current directory is:
+
+```text
+D:\k8s-windows-lab-template\scripts
+```
+
+use:
+
+```powershell
+.\destroy.cmd
+```
+
+or:
+
+```powershell
+.\destroy.ps1
+```
+
+### Bridge configuration is not required for destroy
+
+Destroying the lab does **not** require:
+
+```text
+K8S_BRIDGE_ADAPTER
+METALLB_POOL_START
+METALLB_POOL_END
+```
+
+The `Vagrantfile` intentionally makes the bridged NIC conditional so these commands can still work without loading the LAN configuration:
+
+```text
+vagrant destroy
+vagrant status
+vagrant snapshot list
+```
+
+Bridge and MetalLB settings are required only when creating/rebuilding the lab with:
+
+```powershell
+.\scripts\up.ps1
+```
+
+### Rebuild after destroy
+
+Your local configuration remains in:
+
+```text
+scripts\lab-config.ps1
+```
+
+To recreate the complete lab:
+
+```powershell
+.\scripts\up.ps1
+```
+
+### Important data warning
+
+Destroying the VMs also destroys local VM state, including:
+
+```text
+K3s cluster state
+Longhorn local volume data
+VirtualBox VM snapshots
+MinIO data stored inside the lab
+Velero backups stored in that local MinIO
+```
+
+If a backup must survive a complete lab destruction, configure Velero to use external object storage such as OCI Object Storage, AWS S3, or an external MinIO instance.
+
