@@ -5,8 +5,8 @@ longhorn_version: "1.12.1"
 metallb_version: "0.16.1"
 velero_chart_version: "12.1.0"
 
-metallb_pool_start: "192.168.1.220"
-metallb_pool_end: "192.168.1.230"
+metallb_pool_start: "192.168.10.240"
+metallb_pool_end: "192.168.10.245"
 
 minio_namespace: "velero"
 minio_bucket: "velero"

@@ -1,7 +1,7 @@
 ---
 - name: Install Helm
   shell: |
-    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   args:
     creates: /usr/local/bin/helm
 
@@ -10,6 +10,17 @@
     kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for all three K3s nodes to be Ready
+  shell: |
+    test "$(kubectl get nodes --no-headers | awk '$2 ~ /^Ready/ {count++} END {print count+0}')" -eq 3
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: ready_nodes
+  retries: 60
+  delay: 5
+  until: ready_nodes.rc == 0
+  changed_when: false
 
 - name: Add Longhorn repo
   shell: helm repo add longhorn https://charts.longhorn.io
@@ -61,9 +72,9 @@
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Add Istio Helm repository
-  shell: helm repo add istio https://istio.io/downloadIstio --force-update || true
-    helm repo remove istio || true
-    helm repo add istio https://blob.istio.io/istio-release/charts
+  shell: |
+    helm repo remove istio >/dev/null 2>&1 || true
+    helm repo add istio https://istio-release.storage.googleapis.com/charts
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -111,6 +122,12 @@
 - name: Wait for MinIO
   shell: |
     kubectl -n {{ minio_namespace }} rollout status deployment/minio --timeout=180s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for MinIO bucket creation
+  shell: |
+    kubectl -n {{ minio_namespace }} wait --for=condition=complete job/create-velero-bucket --timeout=180s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 

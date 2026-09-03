@@ -1,19 +1,27 @@
 ---
 - name: Wait for K3s API
-  shell: |
-    kubectl get nodes
+  command: kubectl get nodes
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  register: result
+  register: k3s_nodes
   retries: 30
   delay: 5
-  until: result.rc == 0
+  until: k3s_nodes.rc == 0
   changed_when: false
 
-- name: Ensure kubeconfig is readable for vagrant
-  shell: |
-    cp /etc/rancher/k3s/k3s.yaml /home/vagrant/.kube/config
-    chown -R vagrant:vagrant /home/vagrant/.kube
-    chmod 600 /home/vagrant/.kube/config
-  args:
-    creates: /home/vagrant/.kube/config
+- name: Ensure vagrant kube directory exists
+  file:
+    path: /home/vagrant/.kube
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: "0700"
+
+- name: Copy kubeconfig for vagrant user
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /home/vagrant/.kube/config
+    remote_src: true
+    owner: vagrant
+    group: vagrant
+    mode: "0600"

@@ -1,23 +1,10 @@
-- name: Configure all nodes
-  hosts: k3s
+---
+- name: Configure K3s master and install cluster platform components
+  hosts: local
+  connection: local
+  gather_facts: true
   become: true
   roles:
     - common
-
-- name: Configure K3s server
-  hosts: master
-  become: true
-  roles:
     - k3s_server
-
-- name: Configure K3s workers
-  hosts: workers
-  become: true
-  roles:
-    - k3s_agent
-
-- name: Install platform components
-  hosts: master
-  become: true
-  roles:
     - platform

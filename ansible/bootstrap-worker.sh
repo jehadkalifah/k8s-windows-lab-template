@@ -4,7 +4,16 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y curl jq ca-certificates open-iscsi nfs-common cryptsetup dmsetup
+apt-get install -y \
+  curl \
+  jq \
+  ca-certificates \
+  git \
+  unzip \
+  open-iscsi \
+  nfs-common \
+  cryptsetup \
+  dmsetup
 
 systemctl enable --now iscsid || true
 systemctl enable --now open-iscsi || true
