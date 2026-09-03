@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("all","argocd","cert-manager","istio","longhorn","monitoring","velero")]
+    [ValidateSet("all","argocd","cert-manager","istio","longhorn","monitoring","vault","velero")]
     [string]$Component
 )
 
@@ -22,6 +22,9 @@ function Invoke-Stage2Component {
         }
         "longhorn" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/longhorn/install.sh"
+        }
+        "vault" {
+            vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/vault/install.sh"
         }
         "monitoring" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/monitoring/install.sh"
@@ -46,7 +49,7 @@ function Invoke-Stage2Component {
     if ($Name -eq "istio") {
         & "$PSScriptRoot\publish.ps1" all
     }
-    elseif ($Name -in @("longhorn","monitoring","argocd","velero")) {
+    elseif ($Name -in @("longhorn","vault","monitoring","argocd","velero")) {
         & "$PSScriptRoot\publish.ps1" $Name
     }
 }
@@ -68,14 +71,15 @@ try {
         # Authoritative Stage 2 order:
         # 1. cert-manager
         # 2. Longhorn
-        # 3. Monitoring
-        # 4. Argo CD
-        # 5. Istio + Gateway API + MetalLB
-        # 6. Velero + MinIO
+        # 3. HashiCorp Vault
+        # 4. Monitoring
+        # 5. Argo CD
+        # 6. Istio + Gateway API + MetalLB
+        # 7. Velero + MinIO
         #
         # Browser-facing components installed before Istio are reconciled by
         # publish.ps1 all immediately after the shared Gateway is installed.
-        foreach ($item in @("cert-manager","longhorn","monitoring","argocd","istio","velero")) {
+        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","istio","velero")) {
             Invoke-Stage2Component $item
         }
     }

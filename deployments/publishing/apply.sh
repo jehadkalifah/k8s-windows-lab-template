@@ -95,6 +95,65 @@ configure_longhorn() {
   echo "Longhorn UI:    http://${host}/"
 }
 
+
+configure_vault() {
+  local ip="$1"
+
+  if ! kubectl -n vault get service vault-ui >/dev/null 2>&1; then
+    echo "SKIP: Vault is not installed."
+    return
+  fi
+
+  local ip_dash="${ip//./-}"
+  local host="${VAULT_PUBLISH_HOST:-vault.${ip_dash}.nip.io}"
+  local rendered="/tmp/vault-publishing.yaml"
+
+  if [ -z "${host}" ]; then
+    echo "ERROR: calculated Vault publishing hostname is empty." >&2
+    exit 1
+  fi
+
+  echo "Reconciling Vault publishing:"
+  echo "  Gateway IP: ${ip}"
+  echo "  Hostname:   ${host}"
+
+  sed "s/__VAULT_HOST__/${host}/g" \
+    /vagrant/deployments/publishing/routes/vault.yaml \
+    > "${rendered}"
+
+  if grep -q '__VAULT_HOST__' "${rendered}"; then
+    echo "ERROR: unresolved __VAULT_HOST__ placeholder remains." >&2
+    exit 1
+  fi
+
+  kubectl -n vault delete httproute \
+    vault-entry vault-ui \
+    --ignore-not-found=true \
+    --wait=true
+
+  kubectl apply -f "${rendered}"
+
+  local live_host=""
+  for i in $(seq 1 20); do
+    live_host="$(kubectl -n vault get httproute vault-ui \
+      -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)"
+    [ "${live_host}" = "${host}" ] && break
+    sleep 1
+  done
+
+  if [ "${live_host}" != "${host}" ]; then
+    echo "ERROR: Vault HTTPRoute hostname reconciliation failed." >&2
+    echo "Expected: ${host}" >&2
+    echo "Live:     ${live_host:-<empty>}" >&2
+    kubectl -n vault get httproute vault-ui -o yaml >&2 || true
+    exit 1
+  fi
+
+  echo
+  echo "Vault entry: http://${ip}/vault"
+  echo "Vault UI:    http://${host}/"
+}
+
 configure_monitoring() {
   if ! kubectl -n monitoring get service monitoring-grafana >/dev/null 2>&1; then
     echo "SKIP: monitoring is not installed."
@@ -185,6 +244,9 @@ case "${COMPONENT}" in
   longhorn)
     configure_longhorn "${IP}"
     ;;
+  vault)
+    configure_vault "${IP}"
+    ;;
   monitoring)
     configure_monitoring "${IP}"
     ;;
@@ -200,6 +262,7 @@ case "${COMPONENT}" in
   all)
     configure_demo
     configure_longhorn "${IP}"
+    configure_vault "${IP}"
     configure_monitoring "${IP}"
     configure_argocd
     configure_velero "${IP}"

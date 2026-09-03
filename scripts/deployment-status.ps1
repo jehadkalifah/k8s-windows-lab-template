@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("all","argocd","cert-manager","istio","longhorn","monitoring","velero")]
+    [ValidateSet("all","argocd","cert-manager","istio","longhorn","monitoring","vault","velero")]
     [string]$Component
 )
 
@@ -28,13 +28,14 @@ try {
         Write-Host "Complete Stage 2 status order:" -ForegroundColor Yellow
         Write-Host "  1. cert-manager"
         Write-Host "  2. Longhorn"
-        Write-Host "  3. Monitoring"
-        Write-Host "  4. Argo CD"
-        Write-Host "  5. Istio + Gateway API + MetalLB"
-        Write-Host "  6. Velero + MinIO"
-        Write-Host "  7. Shared Gateway publishing / HTTPRoutes"
+        Write-Host "  3. HashiCorp Vault"
+        Write-Host "  4. Monitoring"
+        Write-Host "  5. Argo CD"
+        Write-Host "  6. Istio + Gateway API + MetalLB"
+        Write-Host "  7. Velero + MinIO"
+        Write-Host "  8. Shared Gateway publishing / HTTPRoutes"
 
-        foreach ($item in @("cert-manager","longhorn","monitoring","argocd","istio","velero")) {
+        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","istio","velero")) {
             Show-Stage2Status $item
         }
 

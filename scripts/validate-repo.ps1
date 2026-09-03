@@ -98,6 +98,23 @@ foreach ($file in $publishingFiles) {
     }
 }
 
+
+# HashiCorp Vault Stage 2 validation
+$vaultFiles = @(
+    "deployments\vault\values.yaml",
+    "deployments\vault\install.sh",
+    "deployments\vault\status.sh",
+    "deployments\vault\remove.sh",
+    "deployments\publishing\routes\vault.yaml",
+    "scripts\vault-init.ps1",
+    "scripts\vault-unseal.ps1"
+)
+foreach ($file in $vaultFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Vault file: $file"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

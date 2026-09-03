@@ -100,3 +100,25 @@ $env:LONGHORN_PUBLISH_HOST = "longhorn.lab.local"
 ```
 
 and make that hostname resolve to the Gateway IP.
+
+
+## Vault host-based publishing
+
+Vault uses the same `istio-ingress/public-gateway`.
+
+Because the Vault UI is not designed to be mounted reliably at a non-root
+browser base path, `/vault` is an entry redirect to a Vault hostname:
+
+```text
+http://<gateway-ip>/vault
+  -> http://vault.<gateway-ip-with-dashes>.nip.io/
+```
+
+Example:
+
+```text
+http://192.168.100.240/vault
+  -> http://vault.192-168-100-240.nip.io/
+```
+
+The hostname route still uses the same Gateway and MetalLB VIP.

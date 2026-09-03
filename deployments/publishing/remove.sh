@@ -14,3 +14,5 @@ done
 echo "Shared publishing HTTPRoutes removed. The Gateway and workloads were kept."
 
 kubectl -n longhorn-system delete httproute longhorn-entry longhorn-ui --ignore-not-found=true || true
+
+kubectl -n vault delete httproute vault-entry vault-ui --ignore-not-found=true || true

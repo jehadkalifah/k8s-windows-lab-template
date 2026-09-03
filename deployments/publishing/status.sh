@@ -41,6 +41,19 @@ if kubectl -n longhorn-system get httproute longhorn-ui >/dev/null 2>&1; then
     echo "  Run: .\\scripts\\publish.ps1 longhorn"
   fi
 fi
+
+
+if kubectl -n vault get httproute vault-ui >/dev/null 2>&1; then
+  VAULT_HOST="$(kubectl -n vault get httproute vault-ui -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)"
+  printf "%-15s http://%s%s\n" "vault-entry" "${IP}" "/vault"
+  if [ -n "${VAULT_HOST}" ]; then
+    printf "%-15s http://%s/\n" "vault" "${VAULT_HOST}"
+  else
+    printf "%-15s %s\n" "vault" "ERROR: live HTTPRoute hostname is empty"
+    echo "  Run: .\\scripts\\publish.ps1 vault"
+  fi
+fi
+
 print_url monitoring monitoring-ui /grafana
 if kubectl -n monitoring get httproute monitoring-ui >/dev/null 2>&1; then
   printf "%-15s http://%s%s\n" "prometheus" "${IP}" "/prometheus"

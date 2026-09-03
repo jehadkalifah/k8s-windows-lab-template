@@ -1076,10 +1076,11 @@ The deployment order is:
 ```text
 1. cert-manager
 2. Longhorn
-3. Monitoring
-4. Argo CD
-5. Istio + Gateway API + MetalLB
-6. Velero + MinIO
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Velero + MinIO
 ```
 
 Why this order:
@@ -1105,7 +1106,7 @@ Velero + MinIO
   backup platform; MinIO depends on Longhorn storage
 ```
 
-When Istio is installed at step 5, the repository automatically runs the shared
+When Istio is installed at step 6, the repository automatically runs the shared
 publishing reconciliation so the already-installed Longhorn, Monitoring and
 Argo CD services receive their `HTTPRoute` paths on `public-gateway`.
 
@@ -1131,20 +1132,28 @@ Check the complete Stage 2 platform:
    - Longhorn nodes
    - Longhorn volumes
 
-3. Monitoring
+3. HashiCorp Vault
+   - Vault Helm release
+   - 3 Vault Raft server pods
+   - Vault Agent Injector
+   - 3 Longhorn-backed Vault PVCs
+   - Vault services
+   - initialized / sealed state for each Vault server
+
+4. Monitoring
    - kube-prometheus-stack Helm release
    - Prometheus
    - Alertmanager
    - Grafana
    - monitoring services
 
-4. Argo CD
+5. Argo CD
    - Argo CD Helm release
    - Argo CD pods
    - services
    - Argo CD CRDs
 
-5. Istio + Gateway API + MetalLB
+6. Istio + Gateway API + MetalLB
    - Gateway API CRDs
    - Istio base / istiod
    - MetalLB controller / speakers
@@ -1153,7 +1162,7 @@ Check the complete Stage 2 platform:
    - public-gateway-istio LoadBalancer
    - demo application / HTTPRoute
 
-6. Velero + MinIO
+7. Velero + MinIO
    - Velero Helm release
    - Velero server
    - node-agent
@@ -1162,7 +1171,7 @@ Check the complete Stage 2 platform:
    - MinIO Longhorn PVC
    - existing Velero backups
 
-7. Shared Gateway publishing
+8. Shared Gateway publishing
    - public-gateway address
    - all HTTPRoutes
    - final published URLs
@@ -1173,6 +1182,7 @@ The final publishing paths are:
 ```text
 /demo
 /longhorn
+/vault
 /grafana
 /prometheus
 /alertmanager
@@ -1496,6 +1506,7 @@ The next Stage 2 modules are:
 
 ```text
 Longhorn
+HashiCorp Vault
 Monitoring
 Argo CD
 Velero + MinIO
@@ -1512,10 +1523,11 @@ Order:
 ```text
 1. cert-manager
 2. Longhorn
-3. Monitoring
-4. Argo CD
-5. Istio + Gateway API + MetalLB
-6. Velero + MinIO
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Velero + MinIO
 ```
 
 Check all:
@@ -1935,6 +1947,7 @@ Individual publishing is also supported:
 
 ```powershell
 .\scripts\publish.ps1 longhorn
+.\scripts\publish.ps1 vault
 .\scripts\publish.ps1 monitoring
 .\scripts\publish.ps1 argocd
 .\scripts\publish.ps1 velero
@@ -1953,14 +1966,15 @@ Remove only the HTTPRoutes while keeping workloads and the Gateway:
 ```text
 1. cert-manager
 2. Longhorn
-3. Monitoring
-4. Argo CD
-5. Istio + Gateway API + MetalLB
-6. Velero + MinIO
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Velero + MinIO
 ```
 
 Browser-facing components installed before Istio are initially installed
-without public routes. When Istio is installed at step 5, the repository runs
+without public routes. When Istio is installed at step 6, the repository runs
 `publish.ps1 all`, which attaches all already-installed browser services to the
 shared `public-gateway`. Velero/MinIO is installed last and is published after
 its deployment completes.
@@ -2260,3 +2274,380 @@ Finally:
 
 The status command now reports an explicit error if the hostname is empty
 instead of silently printing `http:///`.
+
+---
+
+# HashiCorp Vault — HA Raft with Longhorn Persistence
+
+HashiCorp Vault is now part of Stage 2 and is installed **after Longhorn**
+because Vault's integrated Raft storage uses Longhorn-backed PVCs.
+
+Pinned versions:
+
+```text
+Vault Helm chart: 0.34.1
+Vault app:        2.0.4
+```
+
+The lab deployment is:
+
+```text
+vault namespace
+|
++-- vault-0
+|   +-- data-vault-0 PVC -> longhorn -> 5Gi
+|
++-- vault-1
+|   +-- data-vault-1 PVC -> longhorn -> 5Gi
+|
++-- vault-2
+|   +-- data-vault-2 PVC -> longhorn -> 5Gi
+|
++-- Integrated Storage (Raft)
+|
++-- vault-agent-injector
+|
++-- vault-ui ClusterIP service
+```
+
+This is not Vault dev mode. Vault data persists across pod and VM restarts as
+long as the Longhorn volumes remain available.
+
+## Updated complete Stage 2 order
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Velero + MinIO
+8. Shared Gateway publishing status
+```
+
+Install everything:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+Or install Vault independently after Longhorn:
+
+```powershell
+. .\scripts\lab-config.ps1
+
+.\scripts\deploy.ps1 longhorn
+.\scripts\deploy.ps1 vault
+```
+
+## Vault initialization
+
+A new persistent Vault cluster starts **uninitialized and sealed**. This is
+expected.
+
+Initialize the first Vault pod, form the three-node Raft cluster and unseal all
+three nodes:
+
+```powershell
+.\scripts\vault-init.ps1
+```
+
+The script creates one Shamir unseal key/share for this local lab and prints:
+
+```text
+Unseal Key
+Root Token
+```
+
+Save both securely outside this Git repository.
+
+**Never commit the Vault root token or unseal key to Git.**
+
+After initialization, verify:
+
+```powershell
+.\scripts\deployment-status.ps1 vault
+```
+
+## Unseal after restart
+
+The Longhorn PVCs preserve Vault data, but Shamir-sealed Vault servers must be
+unsealed again after they restart.
+
+Run:
+
+```powershell
+.\scripts\vault-unseal.ps1
+```
+
+The script securely prompts for the unseal key and unseals:
+
+```text
+vault-0
+vault-1
+vault-2
+```
+
+## Vault PVC verification
+
+Check the Vault PVCs:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl -n vault get pvc -o wide"
+```
+
+Expected:
+
+```text
+3 PVCs
+STATUS:       Bound
+STORAGECLASS: longhorn
+SIZE:         5Gi each
+```
+
+Check the underlying PVs:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl get pv"
+```
+
+Check Vault and Longhorn together:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl -n vault get pods,pvc"
+vagrant ssh k3s-master -c "sudo kubectl -n longhorn-system get volumes.longhorn.io"
+```
+
+## Vault publishing
+
+Vault uses the same:
+
+```text
+istio-ingress/public-gateway
+```
+
+as the other Stage 2 services.
+
+The Vault UI does not reliably support a non-root browser base path, so
+`/vault` is kept as an entry URL and redirects to a Vault hostname on the same
+Gateway.
+
+With Gateway IP `192.168.100.240`:
+
+```text
+http://192.168.100.240/vault
+        |
+        | HTTP 302
+        v
+http://vault.192-168-100-240.nip.io/
+        |
+        v
+same istio-ingress/public-gateway
+        |
+        v
+vault/vault-ui:8200
+```
+
+Publish/reconcile Vault:
+
+```powershell
+.\scripts\publish.ps1 vault
+```
+
+Check all publishing:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+Expected Vault entries:
+
+```text
+vault-entry     http://192.168.100.240/vault
+vault           http://vault.192-168-100-240.nip.io/
+```
+
+To use your own DNS instead of `nip.io`:
+
+```powershell
+$env:VAULT_PUBLISH_HOST = "vault.lab.local"
+.\scripts\publish.ps1 vault
+```
+
+Then make `vault.lab.local` resolve to the current Gateway IP.
+
+## Vault Agent Injector
+
+The official Vault Agent Injector is enabled in this deployment. This prepares
+the lab for Kubernetes workloads that need Vault-backed secrets.
+
+The repository does not automatically create application policies, Kubernetes
+auth roles or secret engines because those should be defined per application
+and namespace.
+
+## Vault status in the complete status command
+
+The normal command:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+now checks:
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Velero + MinIO
+8. Shared Gateway publishing / HTTPRoutes
+```
+
+For Vault it reports:
+
+```text
+Helm release
+StatefulSet
+Vault Agent Injector
+vault-0 / vault-1 / vault-2
+PVCs and StorageClass
+Vault services
+Initialized / Sealed state
+```
+
+## Vault removal protection
+
+Vault PVCs contain the Vault Raft database. Removal is therefore protected.
+
+This command refuses to remove Vault while the persistent PVCs exist:
+
+```powershell
+.\scripts\remove-deployment.ps1 vault
+```
+
+To intentionally remove Vault **and its persistent data**:
+
+```powershell
+.\scripts\remove-deployment.ps1 vault -Force
+```
+
+Use `-Force` only when losing the Vault data is intentional.
+
+## TLS note
+
+This lab currently uses HTTP internally for Vault to match the existing
+development Gateway model.
+
+For a production-style deployment, the next step should be to use
+cert-manager/trusted certificates and publish Vault over HTTPS before storing
+real production secrets.
+
+---
+
+# Vault UI Before Initialization
+
+Vault is configured so its UI can be reached **before initialization or
+unseal**.
+
+The Helm values use:
+
+```yaml
+ui:
+  enabled: true
+  serviceType: ClusterIP
+  publishNotReadyAddresses: true
+  activeVaultPodOnly: false
+  externalPort: 8200
+  targetPort: 8200
+```
+
+This prevents the previous:
+
+```text
+no healthy upstream
+```
+
+condition.
+
+The reason is:
+
+```text
+publishNotReadyAddresses: true
+  -> sealed/uninitialized Vault pods remain in the UI Service endpoints
+
+activeVaultPodOnly: false
+  -> the UI Service does not require vault-active=true
+  -> before initialization there is no HA leader yet
+```
+
+The HA Raft and persistent-storage design is unchanged:
+
+```text
+vault-0 -> 5Gi Longhorn PVC
+vault-1 -> 5Gi Longhorn PVC
+vault-2 -> 5Gi Longhorn PVC
+```
+
+## Flow
+
+Deploy:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 vault
+```
+
+Publish:
+
+```powershell
+.\scripts\publish.ps1 vault
+```
+
+Check:
+
+```powershell
+.\scripts\deployment-status.ps1 vault
+.\scripts\publishing-status.ps1
+```
+
+Open:
+
+```text
+http://192.168.100.240/vault
+```
+
+which redirects to:
+
+```text
+http://vault.192-168-100-240.nip.io/
+```
+
+At this point the UI is reachable even if Vault is still:
+
+```text
+Initialized: false
+Sealed:      true
+```
+
+Then initialize the complete three-node Raft cluster:
+
+```powershell
+.\scripts\vault-init.ps1
+```
+
+After a future restart, Longhorn keeps the Raft data, but Shamir-sealed Vault
+servers must be unsealed again:
+
+```powershell
+.\scripts\vault-unseal.ps1
+```
+
+To verify the UI Service has endpoints before initialization:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl -n vault get endpointslice -l kubernetes.io/service-name=vault-ui -o wide"
+```

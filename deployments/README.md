@@ -59,6 +59,7 @@ Complete Stage 2 set:
 ```text
 cert-manager
 longhorn
+vault
 monitoring
 argocd
 istio
@@ -107,3 +108,22 @@ through Kubernetes Gateway API `HTTPRoute` resources.
 ```
 
 See `deployments/publishing/README.md` for the path map.
+
+
+## HashiCorp Vault
+
+Vault is installed after Longhorn because its Raft data uses the `longhorn`
+StorageClass.
+
+```powershell
+.\scripts\deploy.ps1 vault
+.\scripts\vault-init.ps1
+.\scripts\deployment-status.ps1 vault
+```
+
+Pinned versions:
+
+```text
+Vault Helm chart: 0.34.1
+Vault app:        2.0.4
+```
