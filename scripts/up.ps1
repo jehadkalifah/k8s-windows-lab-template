@@ -1,33 +1,34 @@
 $ErrorActionPreference = "Stop"
-
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\load-config.ps1"
+Push-Location $RepoRoot
+try {
+    Write-Host "Kubernetes lab network configuration" -ForegroundColor Cyan
+    Write-Host "  Bridge:       $env:K8S_BRIDGE_ADAPTER"
+    Write-Host "  Master LAN:   $env:K3S_MASTER_LAN_IP"
+    Write-Host "  Worker 1 LAN: $env:K3S_WORKER1_LAN_IP"
+    Write-Host "  Worker 2 LAN: $env:K3S_WORKER2_LAN_IP"
+    Write-Host "  API LAN:      https://$($env:K3S_API_LAN_IP):6443"
+    Write-Host "  MetalLB:      $env:METALLB_POOL_START - $env:METALLB_POOL_END"
+    Write-Host ""
 
-Write-Host "Using bridged adapter: $env:K8S_BRIDGE_ADAPTER" -ForegroundColor Cyan
-Write-Host "MetalLB pool: $env:METALLB_POOL_START - $env:METALLB_POOL_END" -ForegroundColor Cyan
-Write-Host ""
+    vagrant up k3s-master
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create/start k3s-master." }
+    vagrant up k3s-worker1
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create/start k3s-worker1." }
+    vagrant up k3s-worker2
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create/start k3s-worker2." }
 
-Write-Host "Starting control-plane VM..." -ForegroundColor Cyan
-vagrant up k3s-master
+    $extraVars = "metallb_pool_start=$env:METALLB_POOL_START metallb_pool_end=$env:METALLB_POOL_END"
+    vagrant ssh k3s-master -c "sudo ansible-playbook -i /vagrant/ansible/inventory.ini /vagrant/ansible/site.yml --extra-vars '$extraVars'"
+    if ($LASTEXITCODE -ne 0) { throw "Ansible platform configuration failed." }
 
-Write-Host "Starting worker VMs..." -ForegroundColor Cyan
-vagrant up k3s-worker1
-vagrant up k3s-worker2
-
-Write-Host "Running Ansible platform configuration..." -ForegroundColor Cyan
-
-$extraVars = "metallb_pool_start=$env:METALLB_POOL_START metallb_pool_end=$env:METALLB_POOL_END"
-
-vagrant ssh k3s-master -c "sudo ansible-playbook -i /vagrant/ansible/inventory.ini /vagrant/ansible/site.yml --extra-vars '$extraVars'"
-
-& "$PSScriptRoot\get-kubeconfig.ps1"
-
-Write-Host ""
-Write-Host "Cluster is ready." -ForegroundColor Green
-
-& "$PSScriptRoot\status.ps1"
-
-Write-Host ""
-Write-Host "Bridged/LAN addresses:" -ForegroundColor Cyan
-vagrant ssh k3s-master -c "ip -br -4 addr"
-vagrant ssh k3s-worker1 -c "ip -br -4 addr"
-vagrant ssh k3s-worker2 -c "ip -br -4 addr"
+    & "$PSScriptRoot\get-kubeconfig.ps1"
+    Write-Host ""
+    Write-Host "Cluster is ready." -ForegroundColor Green
+    & "$PSScriptRoot\status.ps1"
+    Write-Host ""
+    Write-Host "Remote API: https://$($env:K3S_API_LAN_IP):6443" -ForegroundColor Cyan
+    Write-Host "Remote kubeconfig: .kube\remote-kubeconfig.yaml"
+}
+finally { Pop-Location }

@@ -9,6 +9,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Push-Location $RepoRoot
+
+
 function Require-Name {
     if ([string]::IsNullOrWhiteSpace($Name)) {
         throw "A restore point name is required for action '$Action'."
@@ -49,3 +53,5 @@ switch ($Action) {
         vagrant ssh k3s-master -c "velero backup delete $Name --confirm"
     }
 }
+
+Pop-Location

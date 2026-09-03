@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $VMs = @("k3s-master", "k3s-worker1", "k3s-worker2")
 
 function Require-Name {
@@ -19,54 +21,70 @@ function Require-Name {
     }
 }
 
-switch ($Action) {
-    "create" {
-        Require-Name
-        Write-Host "Halting all VMs for a consistent snapshot..." -ForegroundColor Cyan
-        vagrant halt
+Push-Location $RepoRoot
+try {
+    switch ($Action) {
+        "create" {
+            Require-Name
 
-        foreach ($vm in $VMs) {
-            Write-Host "Creating '$Name' for $vm..." -ForegroundColor Cyan
-            vagrant snapshot save $vm $Name
+            Write-Host "Halting all VMs for a consistent VM restore point..." -ForegroundColor Cyan
+            vagrant halt
+            if ($LASTEXITCODE -ne 0) { throw "vagrant halt failed." }
+
+            foreach ($vm in $VMs) {
+                Write-Host "Creating '$Name' for $vm..." -ForegroundColor Cyan
+                vagrant snapshot save $vm $Name
+                if ($LASTEXITCODE -ne 0) { throw "Snapshot creation failed for $vm." }
+            }
+
+            Write-Host "VM restore point '$Name' created." -ForegroundColor Green
         }
 
-        Write-Host "VM restore point '$Name' created for all three nodes." -ForegroundColor Green
-    }
-
-    "list" {
-        foreach ($vm in $VMs) {
-            Write-Host ""
-            Write-Host "=== $vm ===" -ForegroundColor Cyan
-            vagrant snapshot list $vm
-        }
-    }
-
-    "restore" {
-        Require-Name
-        Write-Host "Halting all VMs..." -ForegroundColor Cyan
-        vagrant halt
-
-        foreach ($vm in $VMs) {
-            Write-Host "Restoring '$Name' on $vm..." -ForegroundColor Cyan
-            vagrant snapshot restore $vm $Name
+        "list" {
+            foreach ($vm in $VMs) {
+                Write-Host ""
+                Write-Host "=== $vm ===" -ForegroundColor Cyan
+                vagrant snapshot list $vm
+            }
         }
 
-        Write-Host "Starting restored VMs..." -ForegroundColor Cyan
-        vagrant up
+        "restore" {
+            Require-Name
 
-        & "$PSScriptRoot\get-kubeconfig.ps1"
-        & "$PSScriptRoot\status.ps1"
+            # vagrant up is used after restore; load LAN config before that.
+            . "$PSScriptRoot\load-config.ps1"
 
-        Write-Host "VM restore point '$Name' restored." -ForegroundColor Green
-    }
+            Write-Host "Halting all VMs..." -ForegroundColor Cyan
+            vagrant halt
 
-    "delete" {
-        Require-Name
-        foreach ($vm in $VMs) {
-            Write-Host "Deleting '$Name' from $vm..." -ForegroundColor Yellow
-            vagrant snapshot delete $vm $Name
+            foreach ($vm in $VMs) {
+                Write-Host "Restoring '$Name' on $vm..." -ForegroundColor Cyan
+                vagrant snapshot restore $vm $Name
+                if ($LASTEXITCODE -ne 0) { throw "Snapshot restore failed for $vm." }
+            }
+
+            Write-Host "Starting restored VMs..." -ForegroundColor Cyan
+            vagrant up --no-provision
+            if ($LASTEXITCODE -ne 0) { throw "Failed to start restored VMs." }
+
+            & "$PSScriptRoot\get-kubeconfig.ps1"
+            & "$PSScriptRoot\status.ps1"
+
+            Write-Host "VM restore point '$Name' restored." -ForegroundColor Green
         }
 
-        Write-Host "VM restore point '$Name' deleted." -ForegroundColor Green
+        "delete" {
+            Require-Name
+
+            foreach ($vm in $VMs) {
+                Write-Host "Deleting '$Name' from $vm..." -ForegroundColor Yellow
+                vagrant snapshot delete $vm $Name
+            }
+
+            Write-Host "VM restore point '$Name' deleted." -ForegroundColor Green
+        }
     }
+}
+finally {
+    Pop-Location
 }

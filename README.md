@@ -144,7 +144,7 @@ notepad .\scripts\lab-config.ps1
 Edit:
 
 ```text
-scripts\lab-config.ps1
+notepad .\scripts\lab-config.ps1
 ```
 
 Set the exact network adapter name:
@@ -182,7 +182,7 @@ Therefore this command should work even if VirtualBox was not added to `PATH`:
 If VirtualBox is installed in a custom directory, update:
 
 ```text
-scripts\find-vboxmanage.ps1
+.\scripts\find-vboxmanage.ps1
 ```
 
 and add the custom path to the candidate list.
@@ -253,7 +253,7 @@ The physical adapter name and LAN range are deliberately **not committed to Git*
 Each Windows machine creates its own:
 
 ```text
-scripts\lab-config.ps1
+.\scripts\lab-config.ps1
 ```
 
 This file is excluded by `.gitignore`.
@@ -404,6 +404,155 @@ If you already have `KUBECONFIG`, restore your previous value after the session:
 Remove-Item Env:KUBECONFIG
 ```
 
+## Lab lifecycle commands
+
+The repository provides separate commands for **create**, **run**, **stop**, **suspend**, **resume**, and **destroy**.
+
+| Action | Command | What it does |
+|---|---|---|
+| Create / provision | `.\scripts\up.ps1` | Creates or starts the VMs and runs the K3s/platform provisioning |
+| Run existing lab | `.\scripts\run.ps1` | Starts existing VMs with `vagrant up --no-provision` |
+| Graceful down | `.\scripts\down.ps1` | Powers off the VMs with `vagrant halt`; keeps disks, data, and snapshots |
+| Suspend | `.\scripts\suspend.ps1` | Saves the current VM execution state |
+| Resume | `.\scripts\resume.ps1` | Restores suspended VMs |
+| Status | `.\scripts\status.ps1` | Shows Kubernetes/node/service status |
+| Destroy | `.\scripts\destroy.cmd` | Permanently deletes the three lab VMs and local VM state |
+
+### 1. Create the lab
+
+Use this the first time, after a complete destroy, or when you intentionally
+want provisioning to run:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\up.ps1
+```
+
+`up.ps1` loads `.\scripts\lab-config.ps1`, starts the VMs and runs the
+Ansible/K3s/platform installation.
+
+### 2. Run an existing lab
+
+If the VMs already exist and were previously powered off:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\run.ps1
+```
+
+This uses:
+
+```text
+vagrant up --no-provision
+```
+
+so it starts the existing lab without reinstalling K3s, Istio, Longhorn,
+MetalLB, Velero, or other platform components.
+
+For downloaded repositories where PowerShell execution policy blocks `.ps1`,
+you can use:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\run.cmd
+```
+
+### 3. Gracefully shut down the lab
+
+Use:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\down.ps1
+```
+
+or:
+
+```powershell
+.\scripts\down.cmd
+```
+
+This performs:
+
+```text
+vagrant halt
+```
+
+and keeps:
+
+```text
+all three VMs
+VM disks
+K3s state
+Longhorn data
+VirtualBox snapshots
+local configuration
+```
+
+Start the lab again with:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\run.ps1
+```
+
+### 4. Suspend the lab
+
+If you want to save the current VM execution/memory state instead of shutting
+the VMs down:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\suspend.ps1
+```
+
+or:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\suspend.cmd
+```
+
+This performs:
+
+```text
+vagrant suspend
+```
+
+### 5. Resume a suspended lab
+
+Use:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\resume.ps1
+```
+
+or:
+
+```powershell
+.\scripts\resume.cmd
+```
+
+This performs:
+
+```text
+vagrant resume
+```
+
+and refreshes the Windows kubeconfig afterward.
+
+### 6. Check lifecycle commands
+
+Run:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\lifecycle.ps1
+```
+
+to print a quick local command reference.
+
 ## Useful commands
 
 ### SSH
@@ -417,6 +566,7 @@ vagrant ssh k3s-worker2
 ### Cluster status
 
 ```powershell
+. .\scripts\lab-config.ps1
 .\scripts\status.ps1
 ```
 
@@ -517,6 +667,7 @@ Use and modify this repository for your own lab and learning environment.
 Run these in order:
 
 ```powershell
+. .\scripts\lab-config.ps1
 .\scripts\up.ps1
 .\scripts\create-golden.ps1
 ```
@@ -524,12 +675,14 @@ Run these in order:
 The second command creates the VM-level factory-reset point. After that, normal experimentation can be reset with:
 
 ```powershell
+. .\scripts\lab-config.ps1
 .\scripts\restore-golden.ps1
 ```
 
 For logical Kubernetes backup/restore testing:
 
 ```powershell
+. .\scripts\lab-config.ps1
 .\scripts\backup.ps1
 .\scripts\restore-velero.ps1
 ```
@@ -889,7 +1042,7 @@ From the repository root:
 The launcher starts PowerShell with a **process-only execution-policy bypass** and then runs:
 
 ```text
-scripts\destroy.ps1
+.\scripts\destroy.ps1
 ```
 
 This avoids the common Windows error:
@@ -931,7 +1084,7 @@ and removes generated local files such as:
 It intentionally keeps:
 
 ```text
-scripts\lab-config.ps1
+.\scripts\lab-config.ps1
 ```
 
 so you can rebuild later using the same bridged adapter and MetalLB settings.
@@ -961,8 +1114,13 @@ Or allow scripts only for the current PowerShell process:
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\scripts\destroy.ps1
-```
 
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+If you want to allow locally created scripts permanently
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
 `-Scope Process` applies only to the current PowerShell session and is reset when that window is closed.
 
 ### Destroy from inside the `scripts` directory
@@ -1014,7 +1172,7 @@ Bridge and MetalLB settings are required only when creating/rebuilding the lab w
 Your local configuration remains in:
 
 ```text
-scripts\lab-config.ps1
+.\scripts\lab-config.ps1
 ```
 
 To recreate the complete lab:

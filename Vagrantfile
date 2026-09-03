@@ -9,51 +9,70 @@ Vagrant.configure("2") do |config|
   mem_worker  = (ENV["K8S_WORKER_MEM"]  || "4096").to_i
 
   bridge_adapter = ENV["K8S_BRIDGE_ADAPTER"]
+  bridge_configured = !(bridge_adapter.nil? || bridge_adapter.strip.empty?)
 
-  if bridge_adapter.nil? || bridge_adapter.strip.empty?
+  # Only commands that CREATE/RECONFIGURE networking require bridge variables.
+  # Maintenance commands such as halt/status/destroy/snapshot/ssh remain usable.
+  command = ARGV[0].to_s
+  commands_requiring_bridge = ["up", "reload", "provision"]
+
+  if commands_requiring_bridge.include?(command) && !bridge_configured
     abort <<~MSG
 
-      K8S_BRIDGE_ADAPTER is not configured.
+      K8S_BRIDGE_ADAPTER is not loaded for '#{command}'.
 
-      Copy:
-        scripts\\lab-config.ps1.example
-      to:
-        scripts\\lab-config.ps1
+      Start each interactive PowerShell session with:
+        . .\\scripts\\lab-config.ps1
 
-      Then set the exact VirtualBox bridged adapter name, for example:
-        $env:K8S_BRIDGE_ADAPTER = "Intel(R) Ethernet Connection"
-
-      Run:
-        .\\scripts\\show-bridges.ps1
-      to see available VirtualBox bridged adapters.
+      Or use the repository wrapper:
+        .\\scripts\\up.ps1
 
     MSG
   end
 
   nodes = [
-    { name: "k3s-master",  mgmt_ip: "192.168.56.10", cpus: cpus_master, memory: mem_master, role: "server" },
-    { name: "k3s-worker1", mgmt_ip: "192.168.56.11", cpus: cpus_worker, memory: mem_worker, role: "agent" },
-    { name: "k3s-worker2", mgmt_ip: "192.168.56.12", cpus: cpus_worker, memory: mem_worker, role: "agent" }
+    {
+      name: "k3s-master",
+      mgmt_ip: "192.168.56.10",
+      lan_ip: ENV["K3S_MASTER_LAN_IP"],
+      cpus: cpus_master,
+      memory: mem_master,
+      role: "server"
+    },
+    {
+      name: "k3s-worker1",
+      mgmt_ip: "192.168.56.11",
+      lan_ip: ENV["K3S_WORKER1_LAN_IP"],
+      cpus: cpus_worker,
+      memory: mem_worker,
+      role: "agent"
+    },
+    {
+      name: "k3s-worker2",
+      mgmt_ip: "192.168.56.12",
+      lan_ip: ENV["K3S_WORKER2_LAN_IP"],
+      cpus: cpus_worker,
+      memory: mem_worker,
+      role: "agent"
+    }
   ]
 
   nodes.each do |node|
     config.vm.define node[:name] do |vm|
       vm.vm.hostname = node[:name]
 
-      # Adapter 1 is Vagrant's default NAT adapter.
-      # It gives the VM outbound internet access.
-
-      # Adapter 2: stable host-only management network.
-      # Used by K3s control-plane/worker communication and by Windows kubectl.
+      # NIC 1: Vagrant NAT for outbound internet.
+      # NIC 2: stable host-only K3s management.
       vm.vm.network "private_network", ip: node[:mgmt_ip]
 
-      # Adapter 3: bridged onto the real LAN.
-      # DHCP is used for the node's LAN address. MetalLB publishes service
-      # addresses from a separately reserved LAN range configured below.
-      vm.vm.network "public_network",
-        bridge: bridge_adapter,
-        auto_config: true,
-        use_dhcp_assigned_default_route: false
+      # NIC 3: physical LAN bridge for remote API and MetalLB L2.
+      if bridge_configured
+        vm.vm.network "public_network",
+          bridge: bridge_adapter,
+          ip: node[:lan_ip],
+          auto_config: true,
+          use_dhcp_assigned_default_route: false
+      end
 
       vm.vm.provider "virtualbox" do |vb|
         vb.name = node[:name]
@@ -65,6 +84,7 @@ Vagrant.configure("2") do |config|
       if node[:role] == "server"
         vm.vm.provision "shell",
           path: "ansible/bootstrap-master.sh",
+          args: [node[:mgmt_ip], ENV["K3S_API_LAN_IP"]],
           privileged: true
       else
         vm.vm.provision "shell",
@@ -73,6 +93,7 @@ Vagrant.configure("2") do |config|
 
         vm.vm.provision "shell",
           path: "ansible/join-worker.sh",
+          args: [node[:mgmt_ip]],
           privileged: true
       end
     end
