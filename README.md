@@ -1058,6 +1058,145 @@ generated Kubernetes TLS Secret from the Istio Gateway.
 
 ---
 
+---
+
+# Complete Stage 2 Deployment Order and Status
+
+After the Istio and cert-manager deployment guidance above, use this section as
+the **authoritative order for the complete Stage 2 platform**.
+
+Install all Stage 2 components:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+The deployment order is:
+
+```text
+1. cert-manager
+2. Longhorn
+3. Monitoring
+4. Argo CD
+5. Istio + Gateway API + MetalLB
+6. Velero + MinIO
+```
+
+Why this order:
+
+```text
+cert-manager
+  certificate/controller foundation
+
+Longhorn
+  persistent storage foundation
+
+Monitoring
+  Prometheus + Alertmanager + Grafana
+
+Argo CD
+  GitOps platform
+
+Istio + Gateway API + MetalLB
+  creates the shared public-gateway and reconciles publishing for all
+  browser-facing components already installed
+
+Velero + MinIO
+  backup platform; MinIO depends on Longhorn storage
+```
+
+When Istio is installed at step 5, the repository automatically runs the shared
+publishing reconciliation so the already-installed Longhorn, Monitoring and
+Argo CD services receive their `HTTPRoute` paths on `public-gateway`.
+
+Check the complete Stage 2 platform:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+`deployment-status.ps1 all` includes **all deployments** in this order:
+
+```text
+1. cert-manager
+   - cert-manager controller
+   - cert-manager cainjector
+   - cert-manager webhook
+   - verification resources
+
+2. Longhorn
+   - Helm release
+   - Longhorn pods
+   - StorageClass
+   - Longhorn nodes
+   - Longhorn volumes
+
+3. Monitoring
+   - kube-prometheus-stack Helm release
+   - Prometheus
+   - Alertmanager
+   - Grafana
+   - monitoring services
+
+4. Argo CD
+   - Argo CD Helm release
+   - Argo CD pods
+   - services
+   - Argo CD CRDs
+
+5. Istio + Gateway API + MetalLB
+   - Gateway API CRDs
+   - Istio base / istiod
+   - MetalLB controller / speakers
+   - IPAddressPool / L2Advertisement
+   - public-gateway
+   - public-gateway-istio LoadBalancer
+   - demo application / HTTPRoute
+
+6. Velero + MinIO
+   - Velero Helm release
+   - Velero server
+   - node-agent
+   - BackupStorageLocation
+   - MinIO
+   - MinIO Longhorn PVC
+   - existing Velero backups
+
+7. Shared Gateway publishing
+   - public-gateway address
+   - all HTTPRoutes
+   - final published URLs
+```
+
+The final publishing paths are:
+
+```text
+/demo
+/longhorn
+/grafana
+/prometheus
+/alertmanager
+/argocd
+/minio
+```
+
+So the normal complete verification command is only:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+Use individual status commands only when troubleshooting one component:
+
+```powershell
+.\scripts\deployment-status.ps1 cert-manager
+.\scripts\deployment-status.ps1 longhorn
+.\scripts\deployment-status.ps1 monitoring
+.\scripts\deployment-status.ps1 argocd
+.\scripts\deployment-status.ps1 istio
+.\scripts\deployment-status.ps1 velero
+```
+
 # MetalLB Webhook Troubleshooting
 
 MetalLB uses validating webhooks for its custom resources such as:
@@ -1344,3 +1483,780 @@ curl http://192.168.100.240/
 
 Use the actual Gateway `EXTERNAL-IP` if MetalLB allocated a different address
 from `192.168.100.240-192.168.100.245`.
+
+---
+
+# Stage 2 Additional Platform Deployments
+
+This section is appended to the existing README. The previous introduction,
+architecture, networking, Stage 1, Istio, MetalLB, cert-manager, Flannel and
+troubleshooting guidance above remains unchanged.
+
+The next Stage 2 modules are:
+
+```text
+Longhorn
+Monitoring
+Argo CD
+Velero + MinIO
+```
+
+Install all Stage 2 components in dependency-safe order:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+Order:
+
+```text
+1. cert-manager
+2. Longhorn
+3. Monitoring
+4. Argo CD
+5. Istio + Gateway API + MetalLB
+6. Velero + MinIO
+```
+
+Check all:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+---
+
+## Longhorn Deployment
+
+Longhorn provides distributed persistent storage.
+
+Pinned version:
+
+```text
+1.12.1
+```
+
+Install:
+
+```powershell
+.\scripts\deploy.ps1 longhorn
+```
+
+Status:
+
+```powershell
+.\scripts\deployment-status.ps1 longhorn
+```
+
+The module creates the default `longhorn` StorageClass with two replicas for
+this three-node local lab.
+
+Stage 1 already installs `open-iscsi` and `nfs-common` on all nodes.
+
+UI:
+
+```powershell
+kubectl -n longhorn-system port-forward svc/longhorn-frontend 8081:80
+```
+
+Open:
+
+```text
+http://127.0.0.1:8081
+```
+
+---
+
+## Monitoring Deployment
+
+The monitoring module installs:
+
+```text
+kube-prometheus-stack 88.5.4
+Prometheus
+Alertmanager
+Grafana
+Prometheus Operator
+kube-state-metrics
+node-exporter
+```
+
+Install:
+
+```powershell
+.\scripts\deploy.ps1 monitoring
+```
+
+Status:
+
+```powershell
+.\scripts\deployment-status.ps1 monitoring
+```
+
+Lab settings:
+
+```text
+Prometheus retention: 2 days
+Grafana persistence: disabled
+K3s embedded control-plane scrape targets: disabled
+```
+
+Grafana:
+
+```powershell
+kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+Login:
+
+```text
+admin / admin-lab
+```
+
+Prometheus:
+
+```powershell
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090
+```
+
+Open:
+
+```text
+http://127.0.0.1:9090
+```
+
+---
+
+## Argo CD Deployment
+
+Argo CD provides GitOps continuous delivery.
+
+Pinned Helm chart:
+
+```text
+10.4.0
+```
+
+Install:
+
+```powershell
+.\scripts\deploy.ps1 argocd
+```
+
+Status:
+
+```powershell
+.\scripts\deployment-status.ps1 argocd
+```
+
+UI:
+
+```powershell
+kubectl -n argocd port-forward svc/argocd-server 8080:443
+```
+
+Open:
+
+```text
+https://127.0.0.1:8080
+```
+
+Username:
+
+```text
+admin
+```
+
+Retrieve initial password:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo"
+```
+
+---
+
+## Velero + MinIO Deployment
+
+Velero provides Kubernetes backup and restore.
+
+Pinned:
+
+```text
+Velero Helm chart: 12.1.0
+Velero app:        1.18.1
+AWS plugin:        v1.14.2
+```
+
+For this lab, MinIO provides S3-compatible object storage.
+
+MinIO storage:
+
+```text
+Namespace:    velero
+PVC:          minio-data
+StorageClass: longhorn
+Size:         10Gi
+Bucket:       velero
+```
+
+Longhorn is therefore required first:
+
+```powershell
+.\scripts\deploy.ps1 longhorn
+.\scripts\deploy.ps1 velero
+```
+
+Or:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+Status:
+
+```powershell
+.\scripts\deployment-status.ps1 velero
+```
+
+Create a restore point:
+
+```powershell
+.\scripts\cluster-points.ps1 create before-change
+```
+
+List:
+
+```powershell
+.\scripts\cluster-points.ps1 list
+```
+
+Restore:
+
+```powershell
+.\scripts\cluster-points.ps1 restore before-change
+```
+
+The backup helper excludes the `velero` namespace so MinIO does not back up its
+own backup store.
+
+MinIO console:
+
+```powershell
+kubectl -n velero port-forward svc/minio 9001:9001
+```
+
+Open:
+
+```text
+http://127.0.0.1:9001
+```
+
+Lab login:
+
+```text
+minio / minio123
+```
+
+### Important backup limitation
+
+MinIO is inside the Kubernetes lab and its data is stored on Longhorn.
+
+Velero backups can restore Kubernetes resources and persistent data while the
+lab exists, but a complete VM/lab destroy also removes Longhorn and MinIO.
+
+For backups that must survive a complete destroy, configure Velero to use
+external S3-compatible object storage.
+
+---
+
+## Expected Additional Namespaces
+
+After deploying all modules:
+
+```powershell
+kubectl get pods -A
+```
+
+you should have namespaces similar to:
+
+```text
+argocd
+cert-manager
+demo
+istio-ingress
+istio-system
+kube-system
+longhorn-system
+metallb-system
+monitoring
+velero
+```
+
+The full Stage 2 platform is:
+
+```text
+K3s
+|
++-- Flannel / CoreDNS
+|
++-- Longhorn
+|   +-- persistent storage
+|
++-- cert-manager
+|
++-- Gateway API
+|   +-- MetalLB
+|   +-- Istio
+|
++-- Monitoring
+|   +-- Prometheus
+|   +-- Alertmanager
+|   +-- Grafana
+|
++-- Argo CD
+|   +-- GitOps
+|
++-- Velero
+    +-- node-agent filesystem backup
+    +-- MinIO
+        +-- Longhorn PVC
+```
+
+---
+
+# Shared Default Gateway Publishing
+
+This section is appended to the existing README. All previous cluster,
+architecture, networking, Flannel, Istio, MetalLB, cert-manager, Longhorn,
+monitoring, Argo CD and Velero guidance above remains unchanged.
+
+## Publishing design
+
+The lab uses **one default Istio Gateway for all HTTP publishing**:
+
+```text
+Gateway namespace: istio-ingress
+Gateway name:      public-gateway
+GatewayClass:      istio
+Listener:          http / port 80
+MetalLB address:   192.168.100.240-192.168.100.245
+```
+
+The normal environment configuration includes:
+
+```powershell
+$env:K8S_GATEWAY_NAMESPACE = "istio-ingress"
+$env:K8S_GATEWAY_NAME      = "public-gateway"
+```
+
+All application/platform routes attach to this same Gateway with
+`HTTPRoute.parentRefs`.
+
+Istio supports attaching HTTPRoutes from other namespaces when the Gateway
+listener permits them. The repository's `public-gateway` listener uses:
+
+```yaml
+allowedRoutes:
+  namespaces:
+    from: All
+```
+
+## Published path map
+
+After Stage 2 deployment, use:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+The shared path map is:
+
+| Path | Namespace | Backend |
+|---|---|---|
+| `/demo` | `demo` | demo hello service |
+| `/longhorn` | `longhorn-system` | Longhorn UI |
+| `/grafana` | `monitoring` | Grafana |
+| `/prometheus` | `monitoring` | Prometheus |
+| `/alertmanager` | `monitoring` | Alertmanager |
+| `/argocd` | `argocd` | Argo CD server/UI |
+| `/minio` | `velero` | MinIO Console |
+
+If MetalLB assigns `192.168.100.240`, the URLs are:
+
+```text
+http://192.168.100.240/demo
+http://192.168.100.240/longhorn
+http://192.168.100.240/grafana
+http://192.168.100.240/prometheus
+http://192.168.100.240/alertmanager
+http://192.168.100.240/argocd
+http://192.168.100.240/minio
+```
+
+Always use the actual Gateway address shown by:
+
+```powershell
+kubectl -n istio-ingress get gateway public-gateway
+```
+
+or:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+## Publish/reconcile all installed services
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\publish.ps1 all
+```
+
+The command is safe to rerun. It:
+
+```text
+1. verifies public-gateway is Programmed;
+2. discovers the actual Gateway IP;
+3. creates/reconciles HTTPRoutes;
+4. configures Grafana for /grafana;
+5. configures Prometheus for /prometheus;
+6. configures Alertmanager for /alertmanager;
+7. configures Argo CD for /argocd;
+8. configures MinIO Console for /minio.
+```
+
+Individual publishing is also supported:
+
+```powershell
+.\scripts\publish.ps1 longhorn
+.\scripts\publish.ps1 monitoring
+.\scripts\publish.ps1 argocd
+.\scripts\publish.ps1 velero
+```
+
+Remove only the HTTPRoutes while keeping workloads and the Gateway:
+
+```powershell
+.\scripts\unpublish.ps1
+```
+
+## Deployment behavior
+
+`deploy.ps1 all` uses the repository's authoritative Stage 2 order:
+
+```text
+1. cert-manager
+2. Longhorn
+3. Monitoring
+4. Argo CD
+5. Istio + Gateway API + MetalLB
+6. Velero + MinIO
+```
+
+Browser-facing components installed before Istio are initially installed
+without public routes. When Istio is installed at step 5, the repository runs
+`publish.ps1 all`, which attaches all already-installed browser services to the
+shared `public-gateway`. Velero/MinIO is installed last and is published after
+its deployment completes.
+
+## Why some components do not have a path
+
+### cert-manager
+
+cert-manager is a Kubernetes controller/CRD platform. It does not provide a
+browser UI, so there is no `/cert-manager` HTTP endpoint to publish.
+
+Use:
+
+```powershell
+kubectl get certificate,issuer,clusterissuer -A
+```
+
+### Velero
+
+Velero itself is primarily operated through Kubernetes CRDs and the `velero`
+CLI. The repository publishes the **MinIO Console** at `/minio`, because MinIO
+is the browser interface for the lab's Velero object-storage backup target.
+
+## MinIO S3 API
+
+Only the MinIO **Console** is published under `/minio`.
+
+The MinIO S3 API on port `9000` is intentionally not published as
+`/s3` or another URL prefix. S3 AWS Signature V4 calculations do not support
+arbitrary reverse-proxy path prefixes reliably. Keep the S3 endpoint internal
+for Velero, or use a dedicated hostname if external S3 API access is required.
+
+## Longhorn security note
+
+The Longhorn Helm installation does not enable authentication on the UI by
+default. `/longhorn` should therefore be considered a **trusted-lab-LAN**
+endpoint and should not be exposed directly to an untrusted/public network.
+
+## Future HTTPS
+
+The shared publishing model is ready for a later HTTPS listener:
+
+```text
+cert-manager
+     |
+     v
+TLS Secret
+     |
+     v
+public-gateway :443
+     |
+     +-- /demo
+     +-- /longhorn
+     +-- /grafana
+     +-- /prometheus
+     +-- /alertmanager
+     +-- /argocd
+     +-- /minio
+```
+
+The same HTTPRoutes can continue using the same `public-gateway`; only the
+Gateway listener/certificate configuration needs to be extended.
+
+---
+
+# Longhorn and MinIO White Page Fix
+
+If these URLs return HTML but show a blank/white browser page:
+
+```text
+http://<gateway-ip>/longhorn
+http://<gateway-ip>/minio
+```
+
+the shared Gateway route must preserve the public subpath for the browser while
+removing that prefix before forwarding to the backend UI service.
+
+The repository now treats these as canonical URLs:
+
+```text
+http://<gateway-ip>/longhorn/
+http://<gateway-ip>/minio/
+```
+
+The Gateway behavior is:
+
+```text
+/longhorn
+    |
+    +-- HTTP 302 --> /longhorn/
+                       |
+                       +-- browser requests /longhorn/<asset>
+                       |
+                       +-- Gateway strips /longhorn/
+                       |
+                       +-- longhorn-frontend receives /<asset>
+
+/minio
+    |
+    +-- HTTP 302 --> /minio/
+                       |
+                       +-- browser requests /minio/<asset>
+                       |
+                       +-- Gateway strips /minio/
+                       |
+                       +-- MinIO Console receives /<asset>
+```
+
+For MinIO the publishing reconciler also sets:
+
+```text
+MINIO_BROWSER_REDIRECT_URL=http://<gateway-ip>/minio/
+```
+
+Reconcile the corrected routes:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\publish.ps1 longhorn
+.\scripts\publish.ps1 velero
+```
+
+Or reconcile everything:
+
+```powershell
+.\scripts\publish.ps1 all
+```
+
+Then verify:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+Use:
+
+```text
+http://192.168.100.240/longhorn/
+http://192.168.100.240/minio/
+```
+
+when `192.168.100.240` is the current `public-gateway` address.
+
+If a browser cached the previous broken SPA response, perform one hard refresh
+after reconciling the routes.
+
+---
+
+# Longhorn Publishing Correction — Host-Based Route
+
+The Longhorn browser error:
+
+```text
+runtime~main....js  Uncaught SyntaxError: Unexpected token '<'
+styles....js        Uncaught SyntaxError: Unexpected token '<'
+main....js          Uncaught SyntaxError: Unexpected token '<'
+```
+
+means the browser requested JavaScript but received HTML.
+
+Longhorn's UI generates root-level requests such as:
+
+```text
+/runtime~main....js
+/styles....js
+/main....js
+/v1/...
+```
+
+When the page is mounted at `/longhorn/`, those requests no longer include the
+`/longhorn` prefix. A normal Gateway API prefix rewrite cannot rewrite the HTML
+or JavaScript generated by the application, so a pure Longhorn subpath is not
+reliable.
+
+## Correct design
+
+Longhorn still uses the same shared Gateway:
+
+```text
+istio-ingress/public-gateway
+```
+
+The `/longhorn` path is retained as an entry URL, but it redirects to a
+host-based route on the same Gateway.
+
+With Gateway IP `192.168.100.240`:
+
+```text
+http://192.168.100.240/longhorn
+        |
+        | HTTP 302
+        v
+http://longhorn.192-168-100-240.nip.io/
+        |
+        v
+istio-ingress/public-gateway
+        |
+        v
+longhorn-system/longhorn-frontend:80
+```
+
+The repository derives the hostname from the actual Gateway IP using `nip.io`.
+
+Apply:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\publish.ps1 longhorn
+```
+
+Check:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+Then open:
+
+```text
+http://192.168.100.240/longhorn
+```
+
+or directly:
+
+```text
+http://longhorn.192-168-100-240.nip.io/
+```
+
+If you prefer your own DNS instead of `nip.io`:
+
+```powershell
+$env:LONGHORN_PUBLISH_HOST = "longhorn.lab.local"
+.\scripts\publish.ps1 longhorn
+```
+
+and configure `longhorn.lab.local` to resolve to the Gateway IP.
+
+All other compatible routes remain on the same shared Gateway:
+
+```text
+/demo
+/grafana
+/prometheus
+/alertmanager
+/argocd
+/minio/
+```
+
+---
+
+# Longhorn Route Reconciliation Validation
+
+If status shows:
+
+```text
+longhorn        http:///
+```
+
+the live `longhorn-ui` object still has no hostname.
+
+The Longhorn publisher now deletes the previous `longhorn-entry` and
+`longhorn-ui` routes before applying the generated host-based routes, then reads
+the live route back from Kubernetes and fails unless:
+
+```yaml
+spec:
+  hostnames:
+    - longhorn.<gateway-ip-with-dashes>.nip.io
+```
+
+matches the generated hostname exactly.
+
+For Gateway IP `192.168.100.240`, reconciliation must produce:
+
+```text
+Hostname: longhorn.192-168-100-240.nip.io
+```
+
+Apply:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\publish.ps1 longhorn
+```
+
+Then validate the actual live object:
+
+```powershell
+.\scripts\longhorn-publishing-check.ps1
+```
+
+Finally:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+The status command now reports an explicit error if the hostname is empty
+instead of silently printing `http:///`.

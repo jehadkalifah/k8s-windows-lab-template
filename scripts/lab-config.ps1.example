@@ -52,3 +52,14 @@ $env:METALLB_POOL_END   = "192.168.100.245"
 # $env:K8S_MASTER_MEM  = "6144"
 # $env:K8S_WORKER_CPUS = "2"
 # $env:K8S_WORKER_MEM  = "4096"
+
+
+# Shared Stage 2 publishing Gateway.
+$env:K8S_GATEWAY_NAMESPACE = "istio-ingress"
+$env:K8S_GATEWAY_NAME      = "public-gateway"
+
+
+# Optional Longhorn hostname override.
+# Leave empty to auto-generate from the actual Gateway IP using nip.io.
+# Example: longhorn.192-168-100-240.nip.io
+$env:LONGHORN_PUBLISH_HOST = ""

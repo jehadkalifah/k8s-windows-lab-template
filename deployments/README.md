@@ -52,3 +52,58 @@ Remove:
 
 cert-manager is installed independently so it can later provide automated TLS
 certificates for Istio Gateway API and other Kubernetes workloads.
+## Additional Stage 2 Modules
+
+Complete Stage 2 set:
+
+```text
+cert-manager
+longhorn
+monitoring
+argocd
+istio
+velero
+```
+
+Install all in dependency-safe order:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+Status:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+Pinned versions:
+
+```text
+cert-manager:          v1.21.1
+Longhorn:              1.12.1
+kube-prometheus-stack: 88.5.4
+Argo CD chart:         10.4.0
+Istio:                 1.31.0
+MetalLB:               0.16.1
+Velero chart:          12.1.0
+Velero AWS plugin:     v1.14.2
+```
+
+
+## Shared Gateway Publishing
+
+All browser-facing services are attached to:
+
+```text
+istio-ingress/public-gateway
+```
+
+through Kubernetes Gateway API `HTTPRoute` resources.
+
+```powershell
+.\scripts\publish.ps1 all
+.\scripts\publishing-status.ps1
+```
+
+See `deployments/publishing/README.md` for the path map.

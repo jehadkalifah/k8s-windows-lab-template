@@ -26,7 +26,7 @@ switch ($Action) {
     "create" {
         Require-Name
         Write-Host "Creating Velero backup '$Name'..." -ForegroundColor Cyan
-        vagrant ssh k3s-master -c "velero backup create $Name --include-cluster-scoped-resources=true --default-volumes-to-fs-backup --wait"
+        vagrant ssh k3s-master -c "velero backup create $Name --include-cluster-scoped-resources=true --exclude-namespaces velero --default-volumes-to-fs-backup --wait"
         vagrant ssh k3s-master -c "velero backup describe $Name --details"
     }
 

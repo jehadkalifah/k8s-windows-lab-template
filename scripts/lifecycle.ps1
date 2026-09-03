@@ -18,3 +18,9 @@ Write-Host "  .\scripts\down.ps1"
 Write-Host "  .\scripts\suspend.ps1"
 Write-Host "  .\scripts\resume.ps1"
 Write-Host "  .\scripts\destroy.cmd"
+
+
+Write-Host ""
+Write-Host "ALL STAGE 2 COMPONENTS"
+Write-Host "  .\scripts\deploy.ps1 all"
+Write-Host "  .\scripts\deployment-status.ps1 all"

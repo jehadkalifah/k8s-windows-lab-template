@@ -19,6 +19,14 @@ Then configure:
 "@
 }
 . $configFile
+
+if ([string]::IsNullOrWhiteSpace($env:K8S_GATEWAY_NAMESPACE)) {
+    $env:K8S_GATEWAY_NAMESPACE = "istio-ingress"
+}
+if ([string]::IsNullOrWhiteSpace($env:K8S_GATEWAY_NAME)) {
+    $env:K8S_GATEWAY_NAME = "public-gateway"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:K3S_FLANNEL_IFACE)) {
     $env:K3S_FLANNEL_IFACE = "eth1"
 }

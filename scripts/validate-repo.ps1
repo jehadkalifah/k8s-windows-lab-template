@@ -65,6 +65,39 @@ if ($vagrantfile -notmatch 'K3S_FLANNEL_IFACE') {
     $failures += "Vagrantfile is not passing K3S_FLANNEL_IFACE to K3s provisioning."
 }
 
+
+# Stage 2 extra module validation
+$stage2Files = @(
+    "deployments\longhorn\install.sh",
+    "deployments\monitoring\install.sh",
+    "deployments\argocd\install.sh",
+    "deployments\velero\install.sh"
+)
+foreach ($file in $stage2Files) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Stage 2 module file: $file"
+    }
+}
+
+
+# Shared Gateway publishing validation
+$publishingFiles = @(
+    "deployments\publishing\apply.sh",
+    "deployments\publishing\status.sh",
+    "deployments\publishing\routes\demo.yaml",
+    "deployments\publishing\routes\longhorn.yaml",
+    "deployments\publishing\routes\monitoring.yaml",
+    "deployments\publishing\routes\argocd.yaml",
+    "deployments\publishing\routes\minio.yaml",
+    "scripts\publish.ps1",
+    "scripts\publishing-status.ps1"
+)
+foreach ($file in $publishingFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing publishing file: $file"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }
