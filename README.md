@@ -1081,7 +1081,8 @@ The deployment order is:
 5. Argo CD
 6. Istio + Gateway API + MetalLB
 7. Kiali Operator + Kiali
-8. Velero + MinIO
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
 ```
 
 Why this order:
@@ -1189,6 +1190,7 @@ The final publishing paths are:
 /alertmanager
 /argocd
 /kiali
+/keycloak
 /minio
 ```
 
@@ -1530,7 +1532,8 @@ Order:
 5. Argo CD
 6. Istio + Gateway API + MetalLB
 7. Kiali Operator + Kiali
-8. Velero + MinIO
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
 ```
 
 Check all:
@@ -1974,7 +1977,8 @@ Remove only the HTTPRoutes while keeping workloads and the Gateway:
 5. Argo CD
 6. Istio + Gateway API + MetalLB
 7. Kiali Operator + Kiali
-8. Velero + MinIO
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
 ```
 
 Browser-facing components installed before Istio are initially installed
@@ -2225,6 +2229,7 @@ All other compatible routes remain on the same shared Gateway:
 /alertmanager
 /argocd
 /kiali
+/keycloak
 /minio/
 ```
 
@@ -2328,7 +2333,8 @@ long as the Longhorn volumes remain available.
 5. Argo CD
 6. Istio + Gateway API + MetalLB
 7. Kiali Operator + Kiali
-8. Velero + MinIO
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
 8. Shared Gateway publishing status
 ```
 
@@ -2510,7 +2516,8 @@ now checks:
 5. Argo CD
 6. Istio + Gateway API + MetalLB
 7. Kiali Operator + Kiali
-8. Velero + MinIO
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
 8. Shared Gateway publishing / HTTPRoutes
 ```
 
@@ -2682,7 +2689,8 @@ Kiali Server:   2.31.0
 5. Argo CD
 6. Istio + Gateway API + MetalLB
 7. Kiali Operator + Kiali
-8. Velero + MinIO
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
 9. Shared Gateway publishing status
 ```
 
@@ -2779,3 +2787,316 @@ kiali-ui        http://192.168.100.240/kiali
 ```
 
 This removes Kiali and its operator but keeps Istio, Prometheus, Grafana and the other Stage 2 deployments.
+
+---
+
+# Keycloak Operator + PostgreSQL
+
+The repository now uses the **official Keycloak Operator** to manage Keycloak
+and a PostgreSQL StatefulSet backed by Longhorn for durable identity data.
+
+Pinned versions:
+
+```text
+Keycloak / Operator: 26.7.3
+PostgreSQL:          18
+```
+
+The official Keycloak Operator is installed from the pinned upstream Kustomize
+resources rather than through OLM, which keeps this local K3s lab lightweight.
+
+## Updated complete Stage 2 order
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Kiali Operator + Kiali
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
+10. Shared Gateway publishing status
+```
+
+Install everything:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+Or Keycloak only, after Longhorn and Istio already exist:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 keycloak
+```
+
+## Architecture
+
+```text
+Keycloak Operator
+        |
+        v
+Keycloak CR
+        |
+        +-- Keycloak Server
+        |     |
+        |     +-- HTTP /keycloak
+        |     +-- metrics / management endpoint
+        |
+        +-- PostgreSQL
+              |
+              +-- StatefulSet: keycloak-postgres
+              |
+              +-- PVC: data-keycloak-postgres-0
+                    |
+                    +-- 10Gi
+                    +-- StorageClass: longhorn
+```
+
+## Why PostgreSQL has the PVC
+
+The Keycloak Operator does not manage a production database for the
+application. Keycloak stores durable realm, user, role, client and
+configuration data in its relational database.
+
+For this lab:
+
+```text
+PostgreSQL
+  -> data-keycloak-postgres-0
+  -> 10Gi
+  -> longhorn
+```
+
+Keycloak Server itself does not need a separate PVC.
+
+Verify:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl -n keycloak get pvc -o wide"
+```
+
+Expected:
+
+```text
+NAME                       STATUS   STORAGECLASS
+data-keycloak-postgres-0   Bound    longhorn
+```
+
+Also:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl get pv"
+```
+
+## Database credentials
+
+The repository does **not** store the PostgreSQL password in Git.
+
+During first deployment:
+
+```text
+keycloak-db-secret
+```
+
+is generated inside Kubernetes with:
+
+```text
+username = keycloak
+password = random value
+```
+
+Subsequent deployments preserve the existing Secret so the database password
+does not unexpectedly change.
+
+## Keycloak Operator installation
+
+The operator is installed in the `keycloak` namespace from the pinned official
+Keycloak Kustomize resources:
+
+```text
+github.com/keycloak/keycloak-k8s-resources/kubernetes?ref=26.7.3
+```
+
+The operator watches the namespace and reconciles:
+
+```text
+keycloak/keycloak
+```
+
+## Bootstrap administrator
+
+If no explicit bootstrap administrator is supplied, the Keycloak Operator
+creates:
+
+```text
+keycloak-initial-admin
+```
+
+with a temporary administrator username/password.
+
+Retrieve it:
+
+```powershell
+.\scripts\keycloak-admin.ps1
+```
+
+The helper prints the temporary credentials only when requested.
+
+After first login, create your normal administrative account and treat the
+bootstrap credentials as temporary.
+
+## Publishing
+
+Keycloak supports an application-relative path natively. The Keycloak CR uses:
+
+```yaml
+additionalOptions:
+  - name: http-relative-path
+    value: /keycloak
+```
+
+Therefore it can remain on the same shared Gateway without the host-based
+workaround required by Longhorn and Vault.
+
+The route is:
+
+```text
+http://192.168.100.240/keycloak
+        |
+        v
+istio-ingress/public-gateway
+        |
+        v
+keycloak/keycloak:8080
+        |
+        v
+Keycloak serves /keycloak itself
+```
+
+Publish Keycloak:
+
+```powershell
+.\scripts\publish.ps1 keycloak
+```
+
+Or all components:
+
+```powershell
+.\scripts\publish.ps1 all
+```
+
+Check:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+Expected:
+
+```text
+keycloak-ui     http://192.168.100.240/keycloak
+```
+
+## Monitoring integration
+
+Keycloak metrics are enabled:
+
+```yaml
+additionalOptions:
+  - name: metrics-enabled
+    value: "true"
+```
+
+Because the monitoring module already installs the Prometheus Operator CRDs,
+the Keycloak Operator creates a `ServiceMonitor`.
+
+The repository adds:
+
+```yaml
+serviceMonitor:
+  labels:
+    release: monitoring
+```
+
+so the existing kube-prometheus-stack instance can discover the Keycloak
+metrics target.
+
+Check:
+
+```powershell
+vagrant ssh k3s-master -c "sudo kubectl -n keycloak get servicemonitor keycloak"
+```
+
+## Status
+
+Check only Keycloak:
+
+```powershell
+.\scripts\deployment-status.ps1 keycloak
+```
+
+The status includes:
+
+```text
+Keycloak Operator
+Keycloak CR
+Keycloak Server pod/service
+PostgreSQL StatefulSet/pod
+Longhorn-backed PostgreSQL PVC
+ServiceMonitor
+bootstrap-admin Secret presence
+```
+
+The complete command:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+now checks:
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Kiali Operator + Kiali
+8. Keycloak Operator + PostgreSQL
+9. Velero + MinIO
+10. Shared Gateway publishing / HTTPRoutes
+```
+
+## Removal protection
+
+The PostgreSQL PVC contains the Keycloak identity database, so normal removal
+is protected:
+
+```powershell
+.\scripts\remove-deployment.ps1 keycloak
+```
+
+If the PVC exists, the command refuses destructive removal.
+
+To intentionally delete Keycloak **and its PostgreSQL data**:
+
+```powershell
+.\scripts\remove-deployment.ps1 keycloak -Force
+```
+
+Use `-Force` only when losing the realms/users/clients stored in this lab is
+intentional.
+
+## Production note
+
+For this local lab, PostgreSQL runs inside Kubernetes on one Longhorn-backed
+PVC.
+
+For a production-style design, use a managed or highly available PostgreSQL
+platform, trusted HTTPS certificates, controlled admin access and a backup
+strategy before using Keycloak for production identities.

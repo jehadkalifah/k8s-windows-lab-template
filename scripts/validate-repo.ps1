@@ -129,6 +129,23 @@ foreach ($file in $kialiFiles) {
     }
 }
 
+
+# Keycloak Operator Stage 2 validation
+$keycloakFiles = @(
+    "deployments\keycloak\keycloak.yaml",
+    "deployments\keycloak\install.sh",
+    "deployments\keycloak\status.sh",
+    "deployments\keycloak\remove.sh",
+    "deployments\keycloak\manifests\postgres.yaml",
+    "deployments\publishing\routes\keycloak.yaml",
+    "scripts\keycloak-admin.ps1"
+)
+foreach ($file in $keycloakFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Keycloak file: $file"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

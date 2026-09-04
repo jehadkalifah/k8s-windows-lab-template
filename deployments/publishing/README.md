@@ -138,3 +138,25 @@ spec:
 ```
 
 No hostname redirect is required.
+
+
+## Keycloak path publishing
+
+Keycloak is published directly at:
+
+```text
+/keycloak
+```
+
+on the existing `istio-ingress/public-gateway`.
+
+The Keycloak CR sets:
+
+```yaml
+spec:
+  additionalOptions:
+    - name: http-relative-path
+      value: /keycloak
+```
+
+so no Gateway prefix stripping or hostname redirect is required.

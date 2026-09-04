@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("all","argocd","cert-manager","istio","kiali","longhorn","monitoring","vault","velero")]
+    [ValidateSet("all","argocd","cert-manager","istio","keycloak","kiali","longhorn","monitoring","vault","velero")]
     [string]$Component
 )
 
@@ -33,10 +33,11 @@ try {
         Write-Host "  5. Argo CD"
         Write-Host "  6. Istio + Gateway API + MetalLB"
         Write-Host "  7. Kiali Operator + Kiali"
-        Write-Host "  8. Velero + MinIO"
-        Write-Host "  9. Shared Gateway publishing / HTTPRoutes"
+        Write-Host "  8. Keycloak Operator + PostgreSQL"
+        Write-Host "  9. Velero + MinIO"
+        Write-Host "  10. Shared Gateway publishing / HTTPRoutes"
 
-        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","istio","kiali","velero")) {
+        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","istio","kiali","keycloak","velero")) {
             Show-Stage2Status $item
         }
 

@@ -61,6 +61,7 @@ if kubectl -n monitoring get httproute monitoring-ui >/dev/null 2>&1; then
 fi
 print_url argocd argocd-ui /argocd
 print_url istio-system kiali-ui /kiali
+print_url keycloak keycloak-ui /keycloak
 print_url velero minio-console /minio/
 
 echo

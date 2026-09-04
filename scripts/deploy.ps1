@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("all","argocd","cert-manager","istio","kiali","longhorn","monitoring","vault","velero")]
+    [ValidateSet("all","argocd","cert-manager","istio","keycloak","kiali","longhorn","monitoring","vault","velero")]
     [string]$Component
 )
 
@@ -39,6 +39,9 @@ function Invoke-Stage2Component {
         "kiali" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/kiali/install.sh"
         }
+        "keycloak" {
+            vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/keycloak/install.sh"
+        }
         "velero" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/velero/install.sh"
         }
@@ -52,7 +55,7 @@ function Invoke-Stage2Component {
     if ($Name -eq "istio") {
         & "$PSScriptRoot\publish.ps1" all
     }
-    elseif ($Name -in @("longhorn","vault","monitoring","argocd","kiali","velero")) {
+    elseif ($Name -in @("longhorn","vault","monitoring","argocd","kiali","keycloak","velero")) {
         & "$PSScriptRoot\publish.ps1" $Name
     }
 }
@@ -79,11 +82,12 @@ try {
         # 5. Argo CD
         # 6. Istio + Gateway API + MetalLB
         # 7. Kiali Operator + Kiali
-        # 8. Velero + MinIO
+        # 8. Keycloak Operator + PostgreSQL
+        # 9. Velero + MinIO
         #
         # Browser-facing components installed before Istio are reconciled by
         # publish.ps1 all immediately after the shared Gateway is installed.
-        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","istio","kiali","velero")) {
+        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","istio","kiali","keycloak","velero")) {
             Invoke-Stage2Component $item
         }
     }

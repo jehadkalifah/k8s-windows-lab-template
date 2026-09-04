@@ -218,6 +218,27 @@ configure_kiali() {
   echo "Kiali: http://${ip}/kiali"
 }
 
+
+configure_keycloak() {
+  local ip="$1"
+
+  if ! kubectl -n keycloak get service keycloak >/dev/null 2>&1; then
+    echo "SKIP: Keycloak is not installed."
+    return
+  fi
+
+  # Keep the Keycloak external hostname URL aligned with the current Gateway IP.
+  # Keycloak itself serves /keycloak because http-relative-path=/keycloak.
+  if kubectl -n keycloak get keycloak keycloak >/dev/null 2>&1; then
+    kubectl -n keycloak patch keycloak keycloak --type merge \
+      -p "{\"spec\":{\"hostname\":{\"hostname\":\"http://${ip}/keycloak\",\"strict\":true}}}" \
+      >/dev/null
+  fi
+
+  kubectl apply -f /vagrant/deployments/publishing/routes/keycloak.yaml
+  echo "Keycloak: http://${ip}/keycloak"
+}
+
 configure_velero() {
   if ! kubectl -n velero get service minio >/dev/null 2>&1; then
     echo "SKIP: Velero/MinIO is not installed."
@@ -280,6 +301,9 @@ case "${COMPONENT}" in
   kiali)
     configure_kiali "${IP}"
     ;;
+  keycloak)
+    configure_keycloak "${IP}"
+    ;;
   all)
     configure_demo
     configure_longhorn "${IP}"
@@ -287,6 +311,7 @@ case "${COMPONENT}" in
     configure_monitoring "${IP}"
     configure_argocd
     configure_kiali "${IP}"
+    configure_keycloak "${IP}"
     configure_velero "${IP}"
     ;;
   *)

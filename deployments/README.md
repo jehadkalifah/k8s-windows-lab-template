@@ -64,6 +64,7 @@ monitoring
 argocd
 istio
 kiali
+keycloak
 velero
 ```
 
@@ -141,3 +142,31 @@ Kiali is installed after Monitoring and Istio because it consumes Istio telemetr
 ```
 
 Pinned version: `2.31.0`. Kiali does not need a PVC.
+
+
+## Keycloak Operator + PostgreSQL
+
+Keycloak is installed after Istio/Kiali in the complete lab order. Its
+PostgreSQL database uses Longhorn persistent storage.
+
+```powershell
+.\scripts\deploy.ps1 keycloak
+.\scripts\keycloak-admin.ps1
+.\scripts\deployment-status.ps1 keycloak
+.\scripts\publish.ps1 keycloak
+```
+
+Pinned:
+
+```text
+Keycloak / Operator: 26.7.3
+PostgreSQL:          18
+```
+
+Database PVC:
+
+```text
+data-keycloak-postgres-0
+5Gi
+StorageClass: longhorn
+```
