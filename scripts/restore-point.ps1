@@ -26,14 +26,17 @@ try {
         Write-Host ""
         Write-Host "================ VM RESTORE POINTS ================" -ForegroundColor Cyan
         & "$PSScriptRoot\vm-points.ps1" list
+        if ($LASTEXITCODE -ne 0) { throw "Could not list VM restore points." }
 
         Write-Host ""
         Write-Host "============== CLUSTER RESTORE POINTS =============" -ForegroundColor Cyan
         & "$PSScriptRoot\cluster-points.ps1" list
+        if ($LASTEXITCODE -ne 0) { throw "Could not list Velero restore points." }
         return
     }
 
     Require-Name
+    $ClusterName = $Name.ToLower()
 
     switch ($Action) {
         "create" {
@@ -42,14 +45,16 @@ try {
             }
 
             if ($Level -eq "cluster" -or $Level -eq "both") {
-                if ($Level -eq "both") {
-                    . "$PSScriptRoot\load-config.ps1"
-                    Write-Host "Starting VMs before the Velero backup..." -ForegroundColor Cyan
-                    vagrant up --no-provision
-                    if ($LASTEXITCODE -ne 0) { throw "Could not start VMs before Velero backup." }
-                }
+                # vm-points create already restarts ONLY the K3s nodes and waits
+                # for Kubernetes. cluster-points independently verifies this as
+                # well and never starts Jenkins.
+                & "$PSScriptRoot\cluster-points.ps1" create $ClusterName
+            }
 
-                & "$PSScriptRoot\cluster-points.ps1" create $Name.ToLower()
+            Write-Host ""
+            Write-Host "Restore point '$Name' created at level '$Level'." -ForegroundColor Green
+            if ($Level -eq "both") {
+                Write-Host "Final VM state: K3s nodes running; Jenkins stopped." -ForegroundColor Yellow
             }
         }
 
@@ -58,10 +63,10 @@ try {
                 & "$PSScriptRoot\vm-points.ps1" restore $Name
             }
             elseif ($Level -eq "cluster") {
-                & "$PSScriptRoot\cluster-points.ps1" restore $Name.ToLower()
+                & "$PSScriptRoot\cluster-points.ps1" restore $ClusterName
             }
             else {
-                throw "Choose exactly one restore mechanism: -Level vm or -Level cluster."
+                throw "Choose exactly one restore mechanism: -Level vm or -Level cluster. VM rollback and Velero restore must not be combined."
             }
         }
 
@@ -71,8 +76,10 @@ try {
             }
 
             if ($Level -eq "cluster" -or $Level -eq "both") {
-                & "$PSScriptRoot\cluster-points.ps1" delete $Name.ToLower()
+                & "$PSScriptRoot\cluster-points.ps1" delete $ClusterName
             }
+
+            Write-Host "Restore point '$Name' deleted at level '$Level'." -ForegroundColor Green
         }
     }
 }

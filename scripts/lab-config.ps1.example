@@ -77,3 +77,6 @@ $env:JENKINS_LAN_IP  = "192.168.100.220"
 $env:JENKINS_CPUS    = "2"
 $env:JENKINS_MEM     = "4096"
 $env:JENKINS_VERSION = "2.568.3"
+
+# Vagrant SSH boot detection timeout for cluster/restore operations.
+$env:VAGRANT_BOOT_TIMEOUT = "600"

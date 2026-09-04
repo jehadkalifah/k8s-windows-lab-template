@@ -1,2 +1,7 @@
+param(
+    [ValidateSet("vm","cluster")]
+    [string]$Level = "vm"
+)
+
 $ErrorActionPreference = "Stop"
-& "$PSScriptRoot\vm-points.ps1" restore "golden-clean"
+& "$PSScriptRoot\restore-point.ps1" restore "golden-clean" -Level $Level

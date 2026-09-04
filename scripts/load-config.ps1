@@ -28,6 +28,10 @@ if ([string]::IsNullOrWhiteSpace($env:K8S_GATEWAY_NAME)) {
 }
 
 
+if ([string]::IsNullOrWhiteSpace($env:VAGRANT_BOOT_TIMEOUT)) {
+    $env:VAGRANT_BOOT_TIMEOUT = "600"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:JENKINS_MGMT_IP)) {
     $env:JENKINS_MGMT_IP = "192.168.56.20"
 }

@@ -4014,3 +4014,446 @@ Update pinned versions deliberately after compatibility testing.
 ## License
 
 MIT.
+
+---
+
+# Restore-Point VM Scope and Boot-Timeout Correction
+
+The backup/restore helpers were corrected after adding the external Jenkins VM.
+Previously, generic commands such as:
+
+```text
+vagrant halt
+vagrant up --no-provision
+```
+
+implicitly included Jenkins. This could make a K3s/Velero backup fail because
+Jenkins was slow or unavailable even though Jenkins is not part of the
+Kubernetes restore point.
+
+## Correct `create -Level both` behavior
+
+```powershell
+.\scripts\restore-point.ps1 create app-v1 -Level both
+```
+
+now performs exactly:
+
+```text
+1. Stop all lab VMs, including Jenkins if it is running.
+2. Snapshot only:
+     k3s-master
+     k3s-worker1
+     k3s-worker2
+3. Jenkins is never snapshotted.
+4. Start only:
+     k3s-master
+     k3s-worker1
+     k3s-worker2
+5. Jenkins remains stopped.
+6. Wait for SSH on all three K3s VMs.
+7. Wait for all 3 Kubernetes nodes to become Ready.
+8. Verify Velero.
+9. Create the Velero backup.
+```
+
+Final expected state:
+
+```text
+k3s-master    running
+k3s-worker1   running
+k3s-worker2   running
+jenkins       poweroff
+```
+
+## Jenkins exclusion
+
+Jenkins is excluded from:
+
+```text
+VM restore-point snapshots
+VM restore-point restore
+Velero backups
+Velero restores
+Velero backup deletion
+```
+
+Jenkins is managed separately with:
+
+```powershell
+.\scripts\jenkins-up.ps1
+.\scripts\jenkins-status.ps1
+.\scripts\jenkins-destroy.ps1
+```
+
+## Boot-timeout correction
+
+The Vagrantfile now uses:
+
+```ruby
+config.vm.boot_timeout = (ENV["VAGRANT_BOOT_TIMEOUT"] || "600").to_i
+```
+
+and `lab-config.ps1` defines:
+
+```powershell
+$env:VAGRANT_BOOT_TIMEOUT = "600"
+```
+
+The restore helpers also verify the VM's actual `running` state and SSH after a
+non-zero `vagrant up` result. Therefore this message alone no longer causes a
+false restore-point failure:
+
+```text
+If the box appears to be booting properly, you may want to increase
+config.vm.boot_timeout
+```
+
+If the VM really does not become SSH-ready within 600 seconds, the workflow
+still fails correctly.
+
+## Corrected scripts
+
+The following scripts share the corrected cluster-only lifecycle logic:
+
+```text
+scripts/restore-common.ps1
+scripts/restore-point.ps1
+scripts/vm-points.ps1
+scripts/cluster-points.ps1
+scripts/backup.ps1
+scripts/restore-velero.ps1
+scripts/create-golden.ps1
+scripts/restore-golden.ps1
+```
+
+## Backup examples
+
+Combined VM + Velero restore point:
+
+```powershell
+.\scripts\restore-point.ps1 create app-v1 -Level both
+```
+
+VM only:
+
+```powershell
+.\scripts\restore-point.ps1 create app-v1 -Level vm
+```
+
+Velero only:
+
+```powershell
+.\scripts\restore-point.ps1 create app-v1 -Level cluster
+```
+
+Standalone Velero backup:
+
+```powershell
+.\scripts\backup.ps1 -Name app-v1
+```
+
+## Restore examples
+
+Exact VM/K3s rollback:
+
+```powershell
+.\scripts\restore-point.ps1 restore app-v1 -Level vm
+```
+
+Kubernetes/Velero restore:
+
+```powershell
+.\scripts\restore-point.ps1 restore app-v1 -Level cluster
+```
+
+`-Level both` is intentionally not accepted for restore. VM rollback and
+Velero restore are separate recovery mechanisms.
+
+## Delete examples
+
+Delete both the K3s VM snapshots and Velero backup:
+
+```powershell
+.\scripts\restore-point.ps1 delete app-v1 -Level both
+```
+
+Delete only K3s VM snapshots:
+
+```powershell
+.\scripts\restore-point.ps1 delete app-v1 -Level vm
+```
+
+Delete only the Velero backup:
+
+```powershell
+.\scripts\restore-point.ps1 delete app-v1 -Level cluster
+```
+
+Delete operations never modify Jenkins snapshots because Jenkins is not part
+of this restore-point system.
+
+## Golden-clean
+
+`create-golden.ps1` now creates both restore levels:
+
+```powershell
+.\scripts\create-golden.ps1
+```
+
+Equivalent to:
+
+```powershell
+.\scripts\restore-point.ps1 create golden-clean -Level both
+```
+
+Restore the exact K3s VM state:
+
+```powershell
+.\scripts\restore-golden.ps1 -Level vm
+```
+
+Or restore Kubernetes state from Velero:
+
+```powershell
+.\scripts\restore-golden.ps1 -Level cluster
+```
+
+---
+
+# Jenkins VM Restore Points
+
+Jenkins is intentionally outside the K3s cluster restore-point workflow.
+
+The cluster command:
+
+```powershell
+.\scripts\restore-point.ps1 create cluster-with-initial-apps -Level both
+```
+
+manages only the Kubernetes lab restore point:
+
+```text
+VM snapshots:
+  k3s-master
+  k3s-worker1
+  k3s-worker2
+
+Velero backup:
+  cluster-with-initial-apps
+
+Jenkins:
+  excluded
+```
+
+During creation of a cluster restore point, Jenkins may be shut down together
+with the other lab VMs so the cluster snapshots are taken from a clean state,
+but Jenkins itself is **not snapshotted** and is **not restarted** by the
+cluster restore-point workflow.
+
+Jenkins VM snapshots are managed separately.
+
+## Create a Jenkins VM snapshot
+
+Load the repo configuration first:
+
+```powershell
+cd D:\k8s-windows-lab-template
+. .\scripts\lab-config.ps1
+```
+
+Stop Jenkins cleanly:
+
+```powershell
+vagrant halt jenkins
+```
+
+Create the Jenkins snapshot:
+
+```powershell
+vagrant snapshot save jenkins jenkins-with-initial-config
+```
+
+Start Jenkins again:
+
+```powershell
+vagrant up jenkins --no-provision
+```
+
+Verify Jenkins:
+
+```powershell
+.\scripts\jenkins-status.ps1
+```
+
+## Recommended matching cluster + Jenkins restore points
+
+If you want matching restore points for both the K3s platform and Jenkins,
+use related names but manage them independently.
+
+Example:
+
+```powershell
+# Cluster VMs + Velero
+.\scripts\restore-point.ps1 create cluster-with-initial-apps -Level both
+
+# Jenkins VM
+vagrant halt jenkins
+vagrant snapshot save jenkins jenkins-with-initial-apps
+vagrant up jenkins --no-provision
+```
+
+This produces:
+
+```text
+Cluster restore point:
+  cluster-with-initial-apps
+
+Jenkins VM snapshot:
+  jenkins-with-initial-apps
+```
+
+The two restore mechanisms are intentionally independent.
+
+## List Jenkins snapshots
+
+```powershell
+vagrant snapshot list jenkins
+```
+
+This lists only snapshots belonging to the Jenkins VM.
+
+Cluster restore points remain listed with:
+
+```powershell
+.\scripts\restore-point.ps1 list
+```
+
+## Restore Jenkins
+
+Stop Jenkins first:
+
+```powershell
+vagrant halt jenkins
+```
+
+Restore the selected snapshot:
+
+```powershell
+vagrant snapshot restore jenkins jenkins-with-initial-apps
+```
+
+If the restore command does not automatically leave Jenkins running, start it:
+
+```powershell
+vagrant up jenkins --no-provision
+```
+
+Then verify:
+
+```powershell
+.\scripts\jenkins-status.ps1
+```
+
+This Jenkins restore does **not** restore or modify:
+
+```text
+k3s-master
+k3s-worker1
+k3s-worker2
+Velero backups
+Longhorn volumes
+Kubernetes resources
+```
+
+## Delete a Jenkins snapshot
+
+```powershell
+vagrant snapshot delete jenkins jenkins-with-initial-apps
+```
+
+Verify:
+
+```powershell
+vagrant snapshot list jenkins
+```
+
+Deleting a Jenkins snapshot does **not** delete the matching cluster restore
+point or Velero backup.
+
+Delete a cluster restore point separately:
+
+```powershell
+.\scripts\restore-point.ps1 delete cluster-with-initial-apps -Level both
+```
+
+## Full restore example: cluster and Jenkins
+
+When both sides must return to a matching saved state, restore them separately.
+
+First restore the K3s VMs:
+
+```powershell
+.\scripts\restore-point.ps1 restore cluster-with-initial-apps -Level vm
+```
+
+If Kubernetes state also needs a Velero restore, run that separately after the
+cluster is healthy:
+
+```powershell
+.\scripts\restore-point.ps1 restore cluster-with-initial-apps -Level cluster
+```
+
+Then restore Jenkins:
+
+```powershell
+vagrant halt jenkins
+vagrant snapshot restore jenkins jenkins-with-initial-apps
+vagrant up jenkins --no-provision
+```
+
+Finally verify both sides:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+.\scripts\publishing-status.ps1
+.\scripts\jenkins-status.ps1
+```
+
+## Jenkins snapshot warning
+
+Jenkins controller data is stored inside the Jenkins VM under:
+
+```text
+/var/lib/jenkins
+```
+
+A VirtualBox/Vagrant Jenkins snapshot therefore captures the Jenkins VM state,
+including the Jenkins home directory at that point in time.
+
+For important or production Jenkins installations, VM snapshots should not be
+the only backup mechanism. Back up `/var/lib/jenkins` or use separately managed
+durable VM storage in addition to snapshots.
+
+## Restore-point scope summary
+
+```text
+restore-point.ps1
+  |
+  +-- k3s-master snapshot
+  +-- k3s-worker1 snapshot
+  +-- k3s-worker2 snapshot
+  +-- Velero backup when -Level cluster/both
+  |
+  X-- Jenkins snapshot
+
+Jenkins snapshots
+  |
+  +-- vagrant snapshot save jenkins <name>
+  +-- vagrant snapshot list jenkins
+  +-- vagrant snapshot restore jenkins <name>
+  +-- vagrant snapshot delete jenkins <name>
+```
+
+This separation is intentional so Jenkins can be managed independently from
+the Kubernetes cluster lifecycle.

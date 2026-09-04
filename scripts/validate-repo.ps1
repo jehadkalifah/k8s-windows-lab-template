@@ -165,6 +165,48 @@ foreach ($file in $jenkinsFiles) {
     }
 }
 
+
+# Backup / restore / delete validation after external Jenkins VM integration
+$restoreFiles = @(
+    "scripts\restore-common.ps1",
+    "scripts\restore-point.ps1",
+    "scripts\vm-points.ps1",
+    "scripts\cluster-points.ps1",
+    "scripts\backup.ps1",
+    "scripts\restore-velero.ps1",
+    "scripts\create-golden.ps1",
+    "scripts\restore-golden.ps1",
+    "RESTORE-POINTS.md"
+)
+foreach ($file in $restoreFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing restore workflow file: $file"
+    }
+}
+
+$restoreCommon = Get-Content (Join-Path $RepoRoot "scripts\restore-common.ps1") -Raw
+$restorePoint = Get-Content (Join-Path $RepoRoot "scripts\restore-point.ps1") -Raw
+$vmPoints = Get-Content (Join-Path $RepoRoot "scripts\vm-points.ps1") -Raw
+
+if ($restoreCommon -notmatch '\$ClusterVMs\s*=\s*@\("k3s-master",\s*"k3s-worker1",\s*"k3s-worker2"\)') {
+    $failures += "Restore workflow does not explicitly scope VM operations to the three K3s nodes."
+}
+if ($restoreCommon -notmatch '\$JenkinsVM\s*=\s*"jenkins"') {
+    $failures += "Restore workflow does not explicitly track Jenkins exclusion."
+}
+if ($restoreCommon -notmatch 'Start-ClusterVMs') {
+    $failures += "Restore workflow is missing cluster-only startup helper."
+}
+if ($vagrantfile -notmatch 'config\.vm\.boot_timeout.*600') {
+    $failures += "Vagrant boot timeout correction is missing."
+}
+if ($restorePoint -match 'vagrant up --no-provision') {
+    $failures += "restore-point.ps1 still contains generic vagrant up that can start Jenkins."
+}
+if ($vmPoints -notmatch 'Jenkins remains stopped by design') {
+    $failures += "vm-points.ps1 does not document Jenkins remaining stopped."
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

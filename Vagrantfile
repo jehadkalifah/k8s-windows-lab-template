@@ -2,6 +2,7 @@ Vagrant.configure("2") do |config|
   config.vm.box = "bento/ubuntu-24.04"
   config.vm.box_check_update = false
   config.ssh.insert_key = false
+  config.vm.boot_timeout = (ENV["VAGRANT_BOOT_TIMEOUT"] || "600").to_i
 
   cpus_master = (ENV["K8S_MASTER_CPUS"] || "4").to_i
   mem_master  = (ENV["K8S_MASTER_MEM"]  || "6144").to_i
