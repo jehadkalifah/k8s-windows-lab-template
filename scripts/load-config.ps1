@@ -27,6 +27,23 @@ if ([string]::IsNullOrWhiteSpace($env:K8S_GATEWAY_NAME)) {
     $env:K8S_GATEWAY_NAME = "public-gateway"
 }
 
+
+if ([string]::IsNullOrWhiteSpace($env:JENKINS_MGMT_IP)) {
+    $env:JENKINS_MGMT_IP = "192.168.56.20"
+}
+if ([string]::IsNullOrWhiteSpace($env:JENKINS_LAN_IP)) {
+    $env:JENKINS_LAN_IP = "192.168.100.220"
+}
+if ([string]::IsNullOrWhiteSpace($env:JENKINS_CPUS)) {
+    $env:JENKINS_CPUS = "2"
+}
+if ([string]::IsNullOrWhiteSpace($env:JENKINS_MEM)) {
+    $env:JENKINS_MEM = "4096"
+}
+if ([string]::IsNullOrWhiteSpace($env:JENKINS_VERSION)) {
+    $env:JENKINS_VERSION = "2.568.3"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:K3S_FLANNEL_IFACE)) {
     $env:K3S_FLANNEL_IFACE = "eth1"
 }
@@ -55,4 +72,14 @@ foreach ($name in $ipVars) {
 }
 if ($env:K3S_API_LAN_IP -ne $env:K3S_MASTER_LAN_IP) {
     Write-Host "WARNING: K3S_API_LAN_IP differs from K3S_MASTER_LAN_IP." -ForegroundColor Yellow
+}
+
+
+$jenkinsIpVars = @("JENKINS_MGMT_IP","JENKINS_LAN_IP")
+foreach ($name in $jenkinsIpVars) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    $parsed = $null
+    if (-not [System.Net.IPAddress]::TryParse($value, [ref]$parsed)) {
+        throw "$name='$value' is not a valid IP address."
+    }
 }

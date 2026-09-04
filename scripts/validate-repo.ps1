@@ -146,6 +146,25 @@ foreach ($file in $keycloakFiles) {
     }
 }
 
+
+# Jenkins external VM validation
+$jenkinsFiles = @(
+    "ansible\bootstrap-jenkins.sh",
+    "deployments\publishing\routes\jenkins.yaml",
+    "external-services\jenkins\README.md",
+    "scripts\jenkins-up.ps1",
+    "scripts\jenkins-status.ps1",
+    "scripts\jenkins-password.ps1",
+    "scripts\jenkins-reprovision.ps1",
+    "scripts\jenkins-destroy.ps1",
+    ".gitattributes"
+)
+foreach ($file in $jenkinsFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Jenkins file: $file"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

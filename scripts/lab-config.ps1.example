@@ -69,3 +69,11 @@ $env:LONGHORN_PUBLISH_HOST = ""
 # Leave empty to auto-generate from the actual Gateway IP using nip.io.
 # Example: vault.192-168-100-240.nip.io
 $env:VAULT_PUBLISH_HOST = ""
+
+# External Jenkins controller VM (NOT a Kubernetes node).
+# Reserve/exclude JENKINS_LAN_IP from the router DHCP pool.
+$env:JENKINS_MGMT_IP = "192.168.56.20"
+$env:JENKINS_LAN_IP  = "192.168.100.220"
+$env:JENKINS_CPUS    = "2"
+$env:JENKINS_MEM     = "4096"
+$env:JENKINS_VERSION = "2.568.3"

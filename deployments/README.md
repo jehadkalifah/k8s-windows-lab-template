@@ -167,6 +167,6 @@ Database PVC:
 
 ```text
 data-keycloak-postgres-0
-5Gi
+10Gi
 StorageClass: longhorn
 ```

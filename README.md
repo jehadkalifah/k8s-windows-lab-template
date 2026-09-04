@@ -3100,3 +3100,421 @@ PVC.
 For a production-style design, use a managed or highly available PostgreSQL
 platform, trusted HTTPS certificates, controlled admin access and a backup
 strategy before using Keycloak for production identities.
+
+---
+
+# Keycloak PostgreSQL Longhorn Capacity Correction
+
+The Keycloak PostgreSQL PVC was reduced from `10Gi` to `5Gi` for this current
+lab capacity.
+
+The StorageClass remains:
+
+```text
+longhorn
+```
+
+and the global Longhorn StorageClass remains:
+
+```text
+numberOfReplicas: 2
+```
+
+The observed scheduling failure was:
+
+```text
+precheck new replica failed: insufficient storage
+```
+
+The repository now creates:
+
+```text
+data-keycloak-postgres-0
+  -> 5Gi
+  -> longhorn
+  -> 2 Longhorn replicas
+```
+
+For larger identity data, expand the VM/Longhorn disks instead of reducing the
+global Longhorn replica count.
+
+
+---
+
+# Jenkins External VM Through the Shared Istio Gateway
+
+Jenkins is the final external-service integration in this lab and is
+intentionally different from the Kubernetes Stage 2 components.
+
+Jenkins runs on its **own Vagrant/VirtualBox VM**:
+
+```text
+jenkins
+  management IP: 192.168.56.20
+  LAN IP:        192.168.100.220
+  CPUs:          2
+  Memory:        4096 MiB
+  Jenkins LTS:   2.568.3
+  Java:          OpenJDK 21
+  HTTP:          8080
+  context path:  /jenkins
+```
+
+The Jenkins VM is **not a K3s node** and `deploy.ps1 all` does not install it.
+
+## Why Jenkins stays on a VM
+
+The architecture is intentionally:
+
+```text
+Kubernetes / Istio
+       |
+       | external backend
+       v
+Jenkins VM
+```
+
+This matches environments where Jenkins is managed separately from the
+application cluster but still needs a common ingress/API Gateway path.
+
+## Jenkins VM network
+
+The VM has three NIC roles, consistent with the rest of the lab:
+
+```text
+eth0 = VirtualBox NAT
+       outbound Internet for apt/plugins
+
+eth1 = host-only management
+       192.168.56.20
+
+eth2 = bridged physical LAN
+       192.168.100.220
+```
+
+Reserve `192.168.100.220` outside DHCP.
+
+The MetalLB pool remains:
+
+```text
+192.168.100.240-192.168.100.245
+```
+
+so the Jenkins backend IP does not overlap it.
+
+## Start Jenkins VM
+
+Start every PowerShell session with:
+
+```powershell
+cd D:\k8s-windows-lab-template
+. .\scripts\lab-config.ps1
+```
+
+Then:
+
+```powershell
+.\scripts\jenkins-up.ps1
+```
+
+This creates/provisions only the Jenkins VM.
+
+The provisioning script installs:
+
+```text
+OpenJDK 21
+Jenkins LTS 2.568.3
+```
+
+and configures Jenkins systemd with:
+
+```text
+JENKINS_PREFIX=/jenkins
+```
+
+Jenkins therefore natively serves:
+
+```text
+http://192.168.100.220:8080/jenkins/
+```
+
+No Istio path rewrite is used.
+
+## Initial Jenkins administrator password
+
+Retrieve it with:
+
+```powershell
+.\scripts\jenkins-password.ps1
+```
+
+or directly:
+
+```powershell
+vagrant ssh jenkins -c "sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
+```
+
+## Same Gateway as Keycloak
+
+Jenkins uses the same Gateway already used by Keycloak and the other lab
+services:
+
+```text
+Gateway namespace: istio-ingress
+Gateway name:      public-gateway
+Listener:          http
+MetalLB VIP:       192.168.100.240
+```
+
+There is **no additional Jenkins Gateway or LoadBalancer**.
+
+## Kubernetes external-backend bridge
+
+Kubernetes represents the external Jenkins VM with a selector-less Service and
+a manually managed EndpointSlice:
+
+```text
+HTTPRoute
+jenkins-http-route
+        |
+        | backendRefs
+        v
+Service
+jenkins-external-svc:8080
+        |
+        | kubernetes.io/service-name
+        v
+EndpointSlice
+jenkins-external
+        |
+        v
+192.168.100.220:8080
+```
+
+The manifest is:
+
+```text
+deployments/publishing/routes/jenkins.yaml
+```
+
+The important objects are equivalent to:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-external-svc
+  namespace: jenkins
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: jenkins-external
+  namespace: jenkins
+  labels:
+    kubernetes.io/service-name: jenkins-external-svc
+addressType: IPv4
+ports:
+  - name: http
+    protocol: TCP
+    port: 8080
+endpoints:
+  - addresses:
+      - 192.168.100.220
+    conditions:
+      ready: true
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: jenkins-http-route
+  namespace: jenkins
+spec:
+  parentRefs:
+    - name: public-gateway
+      namespace: istio-ingress
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /jenkins
+      backendRefs:
+        - name: jenkins-external-svc
+          port: 8080
+```
+
+The real repository route uses `__JENKINS_LAN_IP__` as a template placeholder
+and `publish.ps1` renders it from `JENKINS_LAN_IP`.
+
+## Publish Jenkins
+
+Publish only Jenkins:
+
+```powershell
+.\scripts\publish.ps1 jenkins
+```
+
+Or reconcile all browser publishing:
+
+```powershell
+.\scripts\publish.ps1 all
+```
+
+`publish.ps1 all` **does include the Jenkins external-Service bridge**, even
+though `deploy.ps1 all` does not create the Jenkins VM.
+
+Open:
+
+```text
+http://192.168.100.240/jenkins
+```
+
+Request flow:
+
+```text
+Browser
+  |
+  v
+http://192.168.100.240/jenkins
+  |
+  v
+MetalLB 192.168.100.240
+  |
+  v
+istio-ingress/public-gateway
+  |
+  v
+jenkins/jenkins-http-route
+  |
+  v
+jenkins/jenkins-external-svc:8080
+  |
+  v
+jenkins/jenkins-external EndpointSlice
+  |
+  v
+192.168.100.220:8080
+  |
+  v
+Jenkins VM /jenkins
+```
+
+## Status
+
+Check Jenkins VM plus Kubernetes bridge:
+
+```powershell
+.\scripts\jenkins-status.ps1
+```
+
+Check all published URLs:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+Expected Jenkins entry:
+
+```text
+jenkins-http-route  http://192.168.100.240/jenkins
+```
+
+## Lifecycle
+
+Create/provision Jenkins:
+
+```powershell
+.\scripts\jenkins-up.ps1
+```
+
+Re-run the Jenkins provisioning:
+
+```powershell
+.\scripts\jenkins-reprovision.ps1
+```
+
+Normal lab commands such as `run.ps1`, `down.ps1`, `suspend.ps1`,
+`resume.ps1`, and the Vagrant lifecycle also see the Jenkins VM because it is
+defined in the same Vagrantfile.
+
+Destroy only Jenkins:
+
+```powershell
+.\scripts\jenkins-destroy.ps1
+```
+
+Destroying the Jenkins VM deletes Jenkins data stored inside that VM.
+
+## Jenkins data persistence
+
+Jenkins stores controller data in its VM filesystem:
+
+```text
+/var/lib/jenkins
+```
+
+It does **not** use a Kubernetes PVC or Longhorn.
+
+This is intentional because Jenkins is an external VM service in this design.
+
+For an important Jenkins controller, back up `/var/lib/jenkins` or move the
+Jenkins home directory to separately managed durable VM storage.
+
+## Line-ending protection
+
+The repository now contains:
+
+```text
+.gitattributes
+```
+
+with:
+
+```text
+*.sh text eol=lf
+```
+
+This prevents Windows Git checkouts from converting shell scripts to CRLF and
+avoids errors such as:
+
+```text
+$'\r': command not found
+```
+
+After pulling these repository changes into an existing Windows checkout, run:
+
+```powershell
+git add --renormalize .
+```
+
+and review:
+
+```powershell
+git status
+```
+
+before committing the normalized line endings.
+
+## HTTPS / production note
+
+The current lab Gateway listener is HTTP, matching Keycloak's current lab
+publishing model.
+
+A production environment can use the same architecture with:
+
+```text
+HTTPS listener
+trusted certificate
+production hostname
+Service + EndpointSlice -> Jenkins VM
+```
+
+without moving Jenkins into Kubernetes.

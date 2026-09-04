@@ -239,6 +239,55 @@ configure_keycloak() {
   echo "Keycloak: http://${ip}/keycloak"
 }
 
+
+configure_jenkins() {
+  local gateway_ip="$1"
+  local jenkins_ip="${JENKINS_LAN_IP:-192.168.100.220}"
+  local rendered="/tmp/jenkins-publishing.yaml"
+
+  if [ -z "${jenkins_ip}" ]; then
+    echo "ERROR: JENKINS_LAN_IP is empty." >&2
+    exit 1
+  fi
+
+  echo "Reconciling external Jenkins VM publishing:"
+  echo "  Gateway:    ${GATEWAY_NAMESPACE}/${GATEWAY_NAME}"
+  echo "  Gateway IP: ${gateway_ip}"
+  echo "  Jenkins VM: ${jenkins_ip}:8080"
+  echo "  Path:       /jenkins"
+
+  kubectl create namespace jenkins --dry-run=client -o yaml | kubectl apply -f -
+
+  sed "s/__JENKINS_LAN_IP__/${jenkins_ip}/g" \
+    /vagrant/deployments/publishing/routes/jenkins.yaml \
+    > "${rendered}"
+
+  if grep -q '__JENKINS_LAN_IP__' "${rendered}"; then
+    echo "ERROR: unresolved Jenkins EndpointSlice IP placeholder." >&2
+    exit 1
+  fi
+
+  kubectl apply -f "${rendered}"
+
+  echo
+  echo "Jenkins bridge resources:"
+  kubectl -n jenkins get service jenkins-external-svc -o wide
+  kubectl -n jenkins get endpointslice jenkins-external -o wide
+  kubectl -n jenkins get httproute jenkins-http-route -o wide
+
+  echo
+  if curl -fsSI --max-time 5 "http://${jenkins_ip}:8080/jenkins/login" >/dev/null 2>&1; then
+    echo "Backend connectivity: OK"
+  else
+    echo "WARNING: Kubernetes host cannot currently reach Jenkins at:"
+    echo "  http://${jenkins_ip}:8080/jenkins/"
+    echo "The route was applied, but the Jenkins VM may be stopped or unavailable."
+  fi
+
+  echo
+  echo "Jenkins URL: http://${gateway_ip}/jenkins"
+}
+
 configure_velero() {
   if ! kubectl -n velero get service minio >/dev/null 2>&1; then
     echo "SKIP: Velero/MinIO is not installed."
@@ -304,6 +353,9 @@ case "${COMPONENT}" in
   keycloak)
     configure_keycloak "${IP}"
     ;;
+  jenkins)
+    configure_jenkins "${IP}"
+    ;;
   all)
     configure_demo
     configure_longhorn "${IP}"
@@ -312,6 +364,7 @@ case "${COMPONENT}" in
     configure_argocd
     configure_kiali "${IP}"
     configure_keycloak "${IP}"
+    configure_jenkins "${IP}"
     configure_velero "${IP}"
     ;;
   *)

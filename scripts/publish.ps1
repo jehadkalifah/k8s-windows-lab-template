@@ -1,6 +1,6 @@
 param(
     [Parameter(Position=0)]
-    [ValidateSet("all","argocd","demo","istio","keycloak","kiali","longhorn","minio","monitoring","vault","velero")]
+    [ValidateSet("all","argocd","demo","istio","jenkins","keycloak","kiali","longhorn","minio","monitoring","vault","velero")]
     [string]$Component = "all"
 )
 
@@ -15,7 +15,8 @@ try {
 
     $longhornHost = if ($env:LONGHORN_PUBLISH_HOST) { $env:LONGHORN_PUBLISH_HOST } else { "" }
     $vaultHost = if ($env:VAULT_PUBLISH_HOST) { $env:VAULT_PUBLISH_HOST } else { "" }
-    $cmd = "sudo env GATEWAY_NAMESPACE='$gatewayNamespace' GATEWAY_NAME='$gatewayName' LONGHORN_PUBLISH_HOST='$longhornHost' VAULT_PUBLISH_HOST='$vaultHost' bash /vagrant/deployments/publishing/apply.sh '$Component'"
+    $jenkinsLanIp = if ($env:JENKINS_LAN_IP) { $env:JENKINS_LAN_IP } else { "192.168.100.220" }
+    $cmd = "sudo env GATEWAY_NAMESPACE='$gatewayNamespace' GATEWAY_NAME='$gatewayName' LONGHORN_PUBLISH_HOST='$longhornHost' VAULT_PUBLISH_HOST='$vaultHost' JENKINS_LAN_IP='$jenkinsLanIp' bash /vagrant/deployments/publishing/apply.sh '$Component'"
     vagrant ssh k3s-master -c $cmd
 
     if ($LASTEXITCODE -ne 0) {

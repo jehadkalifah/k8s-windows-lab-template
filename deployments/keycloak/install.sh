@@ -111,4 +111,3 @@ echo "  .\\scripts\\keycloak-admin.ps1"
 echo
 echo "Publish/reconcile:"
 echo "  .\\scripts\\publish.ps1 keycloak"
-

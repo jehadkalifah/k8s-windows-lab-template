@@ -62,9 +62,18 @@ fi
 print_url argocd argocd-ui /argocd
 print_url istio-system kiali-ui /kiali
 print_url keycloak keycloak-ui /keycloak
+print_url jenkins jenkins-http-route /jenkins
 print_url velero minio-console /minio/
 
 echo
 echo "Components without a browser path:"
 echo "  cert-manager  -> Kubernetes CRDs/controllers only"
 echo "  Velero CLI/API -> use kubectl/velero; MinIO console is published separately"
+
+
+echo
+echo "=== Jenkins external VM backend ==="
+if kubectl -n jenkins get endpointslice jenkins-external >/dev/null 2>&1; then
+  kubectl -n jenkins get service jenkins-external-svc -o wide
+  kubectl -n jenkins get endpointslice jenkins-external -o wide
+fi

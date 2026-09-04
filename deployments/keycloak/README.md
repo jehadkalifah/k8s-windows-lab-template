@@ -60,4 +60,3 @@ Intentional destructive removal:
 ```powershell
 .\scripts\remove-deployment.ps1 keycloak -Force
 ```
-

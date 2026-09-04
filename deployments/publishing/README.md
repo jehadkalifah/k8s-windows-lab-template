@@ -160,3 +160,31 @@ spec:
 ```
 
 so no Gateway prefix stripping or hostname redirect is required.
+
+
+## Jenkins external VM publishing
+
+Jenkins is different from the other published components because the Jenkins
+controller runs on a separate Vagrant VM rather than inside Kubernetes.
+
+```text
+HTTPRoute /jenkins
+  -> Service jenkins-external-svc
+  -> EndpointSlice jenkins-external
+  -> 192.168.100.220:8080
+```
+
+The route uses the **same** Gateway as Keycloak:
+
+```text
+istio-ingress/public-gateway
+listener: http
+```
+
+Jenkins itself is configured with:
+
+```text
+JENKINS_PREFIX=/jenkins
+```
+
+so the Gateway does not rewrite or strip the path.

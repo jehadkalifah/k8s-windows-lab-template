@@ -8,6 +8,13 @@ Vagrant.configure("2") do |config|
   cpus_worker = (ENV["K8S_WORKER_CPUS"] || "2").to_i
   mem_worker  = (ENV["K8S_WORKER_MEM"]  || "4096").to_i
 
+  # External Jenkins controller VM. This VM is NOT a Kubernetes node.
+  jenkins_mgmt_ip = ENV["JENKINS_MGMT_IP"] || "192.168.56.20"
+  jenkins_lan_ip  = ENV["JENKINS_LAN_IP"]  || "192.168.100.220"
+  jenkins_cpus    = (ENV["JENKINS_CPUS"] || "2").to_i
+  jenkins_mem     = (ENV["JENKINS_MEM"]  || "4096").to_i
+  jenkins_version = ENV["JENKINS_VERSION"] || "2.568.3"
+
   bridge_adapter = ENV["K8S_BRIDGE_ADAPTER"]
   flannel_iface = ENV["K3S_FLANNEL_IFACE"] || "eth1"
   bridge_configured = !(bridge_adapter.nil? || bridge_adapter.strip.empty?)
@@ -100,4 +107,38 @@ Vagrant.configure("2") do |config|
       end
     end
   end
+
+# -------------------------------------------------------------------
+# Jenkins controller VM
+# -------------------------------------------------------------------
+# Jenkins deliberately remains OUTSIDE Kubernetes. Kubernetes publishes
+# it through a selector-less Service + EndpointSlice + HTTPRoute.
+config.vm.define "jenkins" do |vm|
+  vm.vm.hostname = "jenkins"
+
+  # NIC 1: Vagrant NAT for outbound package/plugin access.
+  # NIC 2: host-only management.
+  vm.vm.network "private_network", ip: jenkins_mgmt_ip
+
+  # NIC 3: physical LAN. The Kubernetes EndpointSlice points to this IP.
+  if bridge_configured
+    vm.vm.network "public_network",
+      bridge: bridge_adapter,
+      ip: jenkins_lan_ip,
+      auto_config: true,
+      use_dhcp_assigned_default_route: false
+  end
+
+  vm.vm.provider "virtualbox" do |vb|
+    vb.name = "jenkins"
+    vb.cpus = jenkins_cpus
+    vb.memory = jenkins_mem
+    vb.linked_clone = true
+  end
+
+  vm.vm.provision "shell",
+    path: "ansible/bootstrap-jenkins.sh",
+    args: [jenkins_version],
+    privileged: true
+end
 end
