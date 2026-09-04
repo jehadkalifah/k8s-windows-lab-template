@@ -115,6 +115,20 @@ foreach ($file in $vaultFiles) {
     }
 }
 
+# Kiali Operator Stage 2 validation
+$kialiFiles = @(
+    "deployments\kiali\kiali.yaml",
+    "deployments\kiali\install.sh",
+    "deployments\kiali\status.sh",
+    "deployments\kiali\remove.sh",
+    "deployments\publishing\routes\kiali.yaml"
+)
+foreach ($file in $kialiFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Kiali file: $file"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

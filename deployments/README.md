@@ -63,6 +63,7 @@ vault
 monitoring
 argocd
 istio
+kiali
 velero
 ```
 
@@ -127,3 +128,16 @@ Pinned versions:
 Vault Helm chart: 0.34.1
 Vault app:        2.0.4
 ```
+
+
+## Kiali Operator
+
+Kiali is installed after Monitoring and Istio because it consumes Istio telemetry from Prometheus.
+
+```powershell
+.\scripts\deploy.ps1 kiali
+.\scripts\deployment-status.ps1 kiali
+.\scripts\publish.ps1 kiali
+```
+
+Pinned version: `2.31.0`. Kiali does not need a PVC.

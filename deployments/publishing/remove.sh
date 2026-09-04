@@ -6,6 +6,7 @@ for item in \
   /vagrant/deployments/publishing/routes/demo.yaml \
   /vagrant/deployments/publishing/routes/monitoring.yaml \
   /vagrant/deployments/publishing/routes/argocd.yaml \
+  /vagrant/deployments/publishing/routes/kiali.yaml \
   /vagrant/deployments/publishing/routes/minio.yaml
 do
   kubectl delete -f "${item}" --ignore-not-found=true || true

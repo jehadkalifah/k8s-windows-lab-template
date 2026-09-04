@@ -1080,7 +1080,8 @@ The deployment order is:
 4. Monitoring
 5. Argo CD
 6. Istio + Gateway API + MetalLB
-7. Velero + MinIO
+7. Kiali Operator + Kiali
+8. Velero + MinIO
 ```
 
 Why this order:
@@ -1187,6 +1188,7 @@ The final publishing paths are:
 /prometheus
 /alertmanager
 /argocd
+/kiali
 /minio
 ```
 
@@ -1527,7 +1529,8 @@ Order:
 4. Monitoring
 5. Argo CD
 6. Istio + Gateway API + MetalLB
-7. Velero + MinIO
+7. Kiali Operator + Kiali
+8. Velero + MinIO
 ```
 
 Check all:
@@ -1970,7 +1973,8 @@ Remove only the HTTPRoutes while keeping workloads and the Gateway:
 4. Monitoring
 5. Argo CD
 6. Istio + Gateway API + MetalLB
-7. Velero + MinIO
+7. Kiali Operator + Kiali
+8. Velero + MinIO
 ```
 
 Browser-facing components installed before Istio are initially installed
@@ -2220,6 +2224,7 @@ All other compatible routes remain on the same shared Gateway:
 /prometheus
 /alertmanager
 /argocd
+/kiali
 /minio/
 ```
 
@@ -2322,7 +2327,8 @@ long as the Longhorn volumes remain available.
 4. Monitoring
 5. Argo CD
 6. Istio + Gateway API + MetalLB
-7. Velero + MinIO
+7. Kiali Operator + Kiali
+8. Velero + MinIO
 8. Shared Gateway publishing status
 ```
 
@@ -2503,7 +2509,8 @@ now checks:
 4. Monitoring
 5. Argo CD
 6. Istio + Gateway API + MetalLB
-7. Velero + MinIO
+7. Kiali Operator + Kiali
+8. Velero + MinIO
 8. Shared Gateway publishing / HTTPRoutes
 ```
 
@@ -2651,3 +2658,124 @@ To verify the UI Service has endpoints before initialization:
 ```powershell
 vagrant ssh k3s-master -c "sudo kubectl -n vault get endpointslice -l kubernetes.io/service-name=vault-ui -o wide"
 ```
+
+---
+
+# Kiali Operator + Kiali
+
+This repository uses the **Kiali Operator**, the recommended Kiali installation model. The operator manages the Kiali Server through a `Kiali` custom resource.
+
+Pinned version:
+
+```text
+Kiali Operator: 2.31.0
+Kiali Server:   2.31.0
+```
+
+## Updated complete Stage 2 order
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Istio + Gateway API + MetalLB
+7. Kiali Operator + Kiali
+8. Velero + MinIO
+9. Shared Gateway publishing status
+```
+
+Kiali is installed after Monitoring and Istio because it reads mesh configuration from Istio and telemetry from Prometheus.
+
+## Install
+
+```powershell
+.\scripts\deploy.ps1 kiali
+```
+
+Or with everything:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+## Prometheus integration
+
+Kiali uses:
+
+```text
+http://monitoring-kube-prometheus-prometheus.monitoring.svc:9090
+```
+
+## Kiali persistence / PVC
+
+Kiali itself does **not** require a persistent volume. It is stateless and reads cluster/mesh state from Kubernetes/Istio and traffic metrics from Prometheus. Therefore this repo intentionally creates no Kiali PVC.
+
+## Authentication
+
+The local lab uses:
+
+```yaml
+spec:
+  auth:
+    strategy: anonymous
+```
+
+Keep anonymous Kiali on a trusted lab network only.
+
+## Publishing
+
+Kiali officially supports a non-root web root, so the Kiali CR uses:
+
+```yaml
+spec:
+  server:
+    web_root: /kiali
+```
+
+It is published directly through the same `istio-ingress/public-gateway`:
+
+```text
+http://192.168.100.240/kiali
+        |
+        v
+istio-ingress/public-gateway
+        |
+        v
+istio-system/kiali:20001
+```
+
+Publish:
+
+```powershell
+.\scripts\publish.ps1 kiali
+```
+
+Or reconcile all:
+
+```powershell
+.\scripts\publish.ps1 all
+```
+
+Status:
+
+```powershell
+.\scripts\deployment-status.ps1 kiali
+.\scripts\deployment-status.ps1 all
+.\scripts\publishing-status.ps1
+```
+
+Expected URL:
+
+```text
+kiali-ui        http://192.168.100.240/kiali
+```
+
+## Removal
+
+```powershell
+.\scripts\remove-deployment.ps1 kiali
+```
+
+This removes Kiali and its operator but keeps Istio, Prometheus, Grafana and the other Stage 2 deployments.

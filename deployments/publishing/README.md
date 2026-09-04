@@ -122,3 +122,19 @@ http://192.168.100.240/vault
 ```
 
 The hostname route still uses the same Gateway and MetalLB VIP.
+
+
+## Kiali path publishing
+
+Kiali is published directly at `/kiali` on the existing
+`istio-ingress/public-gateway`.
+
+Kiali supports a non-root web root, so the Kiali CR uses:
+
+```yaml
+spec:
+  server:
+    web_root: /kiali
+```
+
+No hostname redirect is required.

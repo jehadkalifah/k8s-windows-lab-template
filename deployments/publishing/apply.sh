@@ -200,6 +200,24 @@ configure_argocd() {
   kubectl apply -f /vagrant/deployments/publishing/routes/argocd.yaml
 }
 
+
+configure_kiali() {
+  local ip="$1"
+  if ! kubectl -n istio-system get service kiali >/dev/null 2>&1; then
+    echo "SKIP: Kiali is not installed."
+    return
+  fi
+
+  if kubectl -n istio-system get kiali kiali >/dev/null 2>&1; then
+    kubectl -n istio-system patch kiali kiali --type merge \
+      -p "{\"spec\":{\"external_services\":{\"grafana\":{\"enabled\":true,\"internal_url\":\"http://monitoring-grafana.monitoring.svc\",\"external_url\":\"http://${ip}/grafana\"}}}}" \
+      >/dev/null
+  fi
+
+  kubectl apply -f /vagrant/deployments/publishing/routes/kiali.yaml
+  echo "Kiali: http://${ip}/kiali"
+}
+
 configure_velero() {
   if ! kubectl -n velero get service minio >/dev/null 2>&1; then
     echo "SKIP: Velero/MinIO is not installed."
@@ -259,12 +277,16 @@ case "${COMPONENT}" in
   istio)
     configure_demo
     ;;
+  kiali)
+    configure_kiali "${IP}"
+    ;;
   all)
     configure_demo
     configure_longhorn "${IP}"
     configure_vault "${IP}"
     configure_monitoring "${IP}"
     configure_argocd
+    configure_kiali "${IP}"
     configure_velero "${IP}"
     ;;
   *)

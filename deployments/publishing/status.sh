@@ -60,6 +60,7 @@ if kubectl -n monitoring get httproute monitoring-ui >/dev/null 2>&1; then
   printf "%-15s http://%s%s\n" "alertmanager" "${IP}" "/alertmanager"
 fi
 print_url argocd argocd-ui /argocd
+print_url istio-system kiali-ui /kiali
 print_url velero minio-console /minio/
 
 echo

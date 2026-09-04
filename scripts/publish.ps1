@@ -1,6 +1,6 @@
 param(
     [Parameter(Position=0)]
-    [ValidateSet("all","argocd","demo","istio","longhorn","minio","monitoring","vault","velero")]
+    [ValidateSet("all","argocd","demo","istio","kiali","longhorn","minio","monitoring","vault","velero")]
     [string]$Component = "all"
 )
 
