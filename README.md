@@ -3518,3 +3518,499 @@ Service + EndpointSlice -> Jenkins VM
 ```
 
 without moving Jenkins into Kubernetes.
+
+---
+
+# Restored Backup, Restore, Cleanup and Quick Reference
+
+These sections restore the original lab backup/restore and cleanup guidance
+that existed before the later Stage 2 platform additions.
+
+The commands and scripts themselves were never removed from the repository.
+This section restores their README documentation.
+
+## Restore Points
+
+The lab supports two independent restore mechanisms:
+
+1. VirtualBox/Vagrant VM restore points
+2. Velero Kubernetes restore points
+
+### Create the golden-clean restore point
+
+After the cluster and desired platform components are in a known-good state:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\restore-point.ps1 create golden-clean -Level both
+```
+
+This creates both:
+
+```text
+VM restore point:
+  golden-clean
+
+Cluster / Velero restore point:
+  golden-clean
+```
+
+Use `golden-clean` as the clean baseline to which the lab can be returned.
+
+### Create multiple restore points
+
+You can keep many named restore points:
+
+```powershell
+.\scripts\restore-point.ps1 create after-istio -Level both
+.\scripts\restore-point.ps1 create after-vault -Level both
+.\scripts\restore-point.ps1 create after-kiali -Level both
+.\scripts\restore-point.ps1 create after-keycloak -Level both
+.\scripts\restore-point.ps1 create before-jenkins-change -Level both
+.\scripts\restore-point.ps1 create before-upgrade -Level both
+.\scripts\restore-point.ps1 create app-v1 -Level both
+```
+
+The restore-point name should describe the state you want to preserve.
+
+### List all restore points
+
+```powershell
+.\scripts\restore-point.ps1 list
+```
+
+This lists both:
+
+```text
+VM RESTORE POINTS
+CLUSTER RESTORE POINTS
+```
+
+### Restore the entire VM/Kubernetes lab
+
+Use the VM-level restore when you need an exact rollback of the complete K3s
+lab state:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\restore-point.ps1 restore golden-clean -Level vm
+```
+
+Or:
+
+```powershell
+.\scripts\restore-point.ps1 restore before-upgrade -Level vm
+```
+
+Use VM restore when you need to recover:
+
+```text
+K3s
+Linux/node configuration
+Longhorn node state
+Istio node/network state
+broken Kubernetes control plane
+the complete three-node VM lab
+```
+
+### Restore Kubernetes resources/data only
+
+When the VMs and K3s cluster are healthy and only Kubernetes state needs
+recovery:
+
+```powershell
+.\scripts\restore-point.ps1 restore golden-clean -Level cluster
+```
+
+or:
+
+```powershell
+.\scripts\restore-point.ps1 restore before-upgrade -Level cluster
+```
+
+This uses Velero rather than reverting the VirtualBox VMs.
+
+### Delete restore points
+
+Delete both the VM and cluster copies:
+
+```powershell
+.\scripts\restore-point.ps1 delete before-upgrade -Level both
+```
+
+Delete only the VM copy:
+
+```powershell
+.\scripts\restore-point.ps1 delete before-upgrade -Level vm
+```
+
+Delete only the cluster/Velero copy:
+
+```powershell
+.\scripts\restore-point.ps1 delete before-upgrade -Level cluster
+```
+
+### Restore comparison
+
+| Requirement | VM snapshot | Velero |
+|---|---:|---:|
+| Exact rollback of K3s VMs | Yes | No |
+| Recover broken K3s | Yes | No |
+| Roll back Linux/node state | Yes | No |
+| Restore Kubernetes objects | Yes | Yes |
+| Restore backed-up application PV data | Yes | Yes |
+| Fast local factory reset | Best | Good |
+| Restore to another Kubernetes cluster | No | Yes |
+| Kubernetes DR practice | Limited | Best |
+
+## Velero Backup / Restore
+
+Create the default backup:
+
+```powershell
+.\scripts\backup.ps1
+```
+
+The default backup name is:
+
+```text
+lab-clean-backup
+```
+
+Create a custom backup:
+
+```powershell
+.\scripts\backup.ps1 -Name before-change
+```
+
+Additional examples:
+
+```powershell
+.\scripts\backup.ps1 -Name before-keycloak-change
+.\scripts\backup.ps1 -Name before-istio-upgrade
+.\scripts\backup.ps1 -Name before-app-release
+```
+
+Restore:
+
+```powershell
+.\scripts\restore-velero.ps1 -Name before-change
+```
+
+Or restore the default:
+
+```powershell
+.\scripts\restore-velero.ps1
+```
+
+### Important Velero backup limitation
+
+The self-contained lab stores Velero backups in MinIO inside the same
+Kubernetes/Longhorn lab.
+
+```text
+Velero
+  |
+  v
+MinIO
+  |
+  v
+Longhorn PVC
+  |
+  v
+same local lab
+```
+
+Therefore a complete VM/lab destruction also destroys:
+
+```text
+Longhorn data
+MinIO data
+Velero backups stored in that MinIO
+```
+
+For backups that must survive a full lab destruction, use external object
+storage such as:
+
+```text
+OCI Object Storage S3-compatible API
+AWS S3
+external MinIO
+another supported S3-compatible object store
+```
+
+## Golden-clean workflow
+
+A practical workflow is:
+
+```powershell
+# 1. Build/start the K3s lab.
+.\scripts\up.ps1
+
+# 2. Deploy platform components.
+.\scripts\deploy.ps1 all
+
+# 3. Initialize/configure components that require it.
+.\scripts\vault-init.ps1
+
+# 4. Start Jenkins VM when required.
+.\scripts\jenkins-up.ps1
+
+# 5. Reconcile all published routes.
+.\scripts\publish.ps1 all
+
+# 6. Verify.
+.\scripts\deployment-status.ps1 all
+.\scripts\publishing-status.ps1
+.\scripts\jenkins-status.ps1
+
+# 7. Create a known-good restore point.
+.\scripts\restore-point.ps1 create golden-clean -Level both
+```
+
+Before risky changes:
+
+```powershell
+.\scripts\restore-point.ps1 create before-test -Level both
+```
+
+After testing:
+
+```powershell
+.\scripts\restore-point.ps1 delete before-test -Level both
+```
+
+or keep the restore point if it represents a useful milestone.
+
+## Cleanup / Destroy
+
+### Destroy the three-node K3s lab permanently
+
+Use:
+
+```powershell
+.\scripts\destroy.cmd
+```
+
+or:
+
+```powershell
+.\scripts\destroy.ps1
+```
+
+The K3s destroy script removes only:
+
+```text
+k3s-master
+k3s-worker1
+k3s-worker2
+```
+
+and generated local K3s state such as:
+
+```text
+.vagrant\
+.kube\
+.k3s-token
+```
+
+It intentionally keeps:
+
+```text
+scripts\lab-config.ps1
+```
+
+so the lab can be recreated using the same machine-local network configuration.
+
+Rebuild:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\up.ps1
+```
+
+### Jenkins is intentionally separate
+
+Jenkins runs on a separate VM and is not removed by the K3s destroy script.
+
+Destroy Jenkins separately:
+
+```powershell
+.\scripts\jenkins-destroy.ps1
+```
+
+This deletes Jenkins data stored inside that VM:
+
+```text
+/var/lib/jenkins
+```
+
+### Destructive-data warning
+
+Destroying the K3s lab permanently removes local:
+
+```text
+Longhorn data
+Kubernetes PV data
+MinIO data
+in-cluster Velero backups
+VM restore points associated with the destroyed K3s VMs
+```
+
+Create an external backup first if that data must survive.
+
+## Useful Commands
+
+```powershell
+# Load machine-local config
+. .\scripts\lab-config.ps1
+
+# Show VirtualBox bridge adapters
+.\scripts\show-bridges.ps1
+
+# Prerequisite checks
+.\scripts\prereq.ps1
+
+# Create/provision K3s lab
+.\scripts\up.ps1
+
+# Start existing K3s lab
+.\scripts\run.ps1
+
+# K3s/Vagrant status
+.\scripts\status.ps1
+
+# Graceful shutdown
+.\scripts\down.ps1
+
+# Suspend / resume
+.\scripts\suspend.ps1
+.\scripts\resume.ps1
+
+# Deploy all Stage 2 Kubernetes components
+.\scripts\deploy.ps1 all
+
+# Stage 2 deployment status
+.\scripts\deployment-status.ps1 all
+
+# Publish/reconcile all installed services and Jenkins bridge
+.\scripts\publish.ps1 all
+
+# Published URL status
+.\scripts\publishing-status.ps1
+
+# Start Jenkins external VM
+.\scripts\jenkins-up.ps1
+
+# Jenkins status
+.\scripts\jenkins-status.ps1
+
+# Jenkins initial password
+.\scripts\jenkins-password.ps1
+
+# List restore points
+.\scripts\restore-point.ps1 list
+
+# Create golden baseline
+.\scripts\restore-point.ps1 create golden-clean -Level both
+
+# Create another restore point
+.\scripts\restore-point.ps1 create before-test -Level both
+
+# Full VM rollback
+.\scripts\restore-point.ps1 restore before-test -Level vm
+
+# Kubernetes-only rollback
+.\scripts\restore-point.ps1 restore before-test -Level cluster
+
+# Velero backup
+.\scripts\backup.ps1 -Name before-change
+
+# Velero restore
+.\scripts\restore-velero.ps1 -Name before-change
+
+# Destroy K3s lab
+.\scripts\destroy.cmd
+
+# Destroy Jenkins VM separately
+.\scripts\jenkins-destroy.ps1
+```
+
+## Current Repository Layout
+
+```text
+k8s-windows-lab-template/
+├── README.md
+├── REMOTE-ACCESS.md
+├── RESTORE-POINTS.md
+├── Vagrantfile
+├── .gitattributes
+├── ansible/
+│   └── bootstrap-jenkins.sh
+├── deployments/
+│   ├── cert-manager/
+│   ├── longhorn/
+│   ├── vault/
+│   ├── monitoring/
+│   ├── argocd/
+│   ├── istio/
+│   ├── kiali/
+│   ├── keycloak/
+│   ├── velero/
+│   └── publishing/
+├── external-services/
+│   └── jenkins/
+├── manifests/
+└── scripts/
+    ├── lab-config.ps1
+    ├── load-config.ps1
+    ├── up.ps1
+    ├── run.ps1
+    ├── status.ps1
+    ├── down.ps1
+    ├── suspend.ps1
+    ├── resume.ps1
+    ├── deploy.ps1
+    ├── deployment-status.ps1
+    ├── publish.ps1
+    ├── publishing-status.ps1
+    ├── restore-point.ps1
+    ├── backup.ps1
+    ├── restore-velero.ps1
+    ├── jenkins-up.ps1
+    ├── jenkins-status.ps1
+    ├── jenkins-password.ps1
+    ├── jenkins-reprovision.ps1
+    ├── jenkins-destroy.ps1
+    ├── destroy.ps1
+    └── destroy.cmd
+```
+
+## Current Version Pins
+
+```text
+K3s:                    v1.36.1+k3s1
+Gateway API:            v1.6.0
+MetalLB:                0.16.1
+Istio:                   1.31.0
+cert-manager:            v1.21.1
+Longhorn:                1.12.1
+Velero chart:            12.1.0
+Velero app:              1.18.1
+Velero AWS plugin:       v1.14.2
+kube-prometheus-stack:   88.5.4
+Argo CD chart:           10.4.0
+Vault chart:             0.34.1
+Vault app:               2.0.4
+Kiali Operator/Server:   2.31.0
+Keycloak/Operator:       26.7.3
+PostgreSQL:              18
+Jenkins LTS:             2.568.3
+Jenkins Java:            OpenJDK 21
+```
+
+Update pinned versions deliberately after compatibility testing.
+
+## License
+
+MIT.
