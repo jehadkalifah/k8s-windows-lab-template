@@ -24,3 +24,8 @@ Write-Host ""
 Write-Host "ALL STAGE 2 COMPONENTS"
 Write-Host "  .\scripts\deploy.ps1 all"
 Write-Host "  .\scripts\deployment-status.ps1 all"
+
+Write-Host ""
+Write-Host "NOTE" -ForegroundColor Yellow
+Write-Host "  Kubernetes cluster lifecycle commands exclude Jenkins."
+Write-Host "  Start Jenkins separately with: .\scripts\jenkins-up.ps1"

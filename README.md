@@ -4457,3 +4457,150 @@ Jenkins snapshots
 
 This separation is intentional so Jenkins can be managed independently from
 the Kubernetes cluster lifecycle.
+
+---
+
+# Kubernetes Lifecycle Scope Correction — Jenkins Excluded
+
+This section supersedes any earlier README wording that implied the normal
+Kubernetes lifecycle commands also manage the Jenkins VM.
+
+Jenkins is intentionally independent from the K3s cluster lifecycle.
+
+The following commands manage **only**:
+
+```text
+k3s-master
+k3s-worker1
+k3s-worker2
+```
+
+and do **not** start, resume, suspend or power off Jenkins:
+
+```powershell
+.\scripts\up.ps1
+.\scripts\run.ps1
+.\scripts\down.ps1
+.\scripts\suspend.ps1
+.\scripts\resume.ps1
+```
+
+Jenkins is managed separately:
+
+```powershell
+.\scripts\jenkins-up.ps1
+.\scripts\jenkins-status.ps1
+.\scripts\jenkins-reprovision.ps1
+.\scripts\jenkins-destroy.ps1
+```
+
+## Why `resume.ps1` was corrected
+
+An unscoped:
+
+```powershell
+vagrant resume
+```
+
+tries to resume every VM in the Vagrantfile, including Jenkins.
+
+If Jenkins is powered off rather than suspended, Vagrant can fail with:
+
+```text
+The machine is in the 'poweroff' state.
+vagrant resume failed with exit code 1.
+```
+
+The corrected `resume.ps1` processes each K3s VM independently:
+
+```text
+running   -> keep running
+saved     -> vagrant resume <k3s-vm>
+poweroff  -> vagrant up <k3s-vm> --no-provision
+```
+
+Afterward it verifies:
+
+```text
+Vagrant SSH reachable
+3 Kubernetes nodes Ready
+```
+
+Jenkins is never touched.
+
+## Correct cluster resume
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\resume.ps1
+```
+
+Expected result:
+
+```text
+k3s-master  running
+k3s-worker1 running
+k3s-worker2 running
+jenkins     unchanged
+```
+
+If Jenkins is powered off, it remains powered off.
+
+Start Jenkins only when needed:
+
+```powershell
+.\scripts\jenkins-up.ps1
+```
+
+## Correct suspend behavior
+
+```powershell
+.\scripts\suspend.ps1
+```
+
+suspends only the three K3s VMs.
+
+Jenkins keeps its current state.
+
+## Correct power-off behavior
+
+```powershell
+.\scripts\down.ps1
+```
+
+halts only running K3s VMs.
+
+Jenkins keeps its current state.
+
+## Status
+
+```powershell
+.\scripts\status.ps1
+```
+
+shows the three Kubernetes VM states and also shows Jenkins as informational
+state only. Jenkins being powered off does not cause cluster status to fail.
+
+For detailed Jenkins status:
+
+```powershell
+.\scripts\jenkins-status.ps1
+```
+
+## Lifecycle separation
+
+```text
+Kubernetes lifecycle
+  |
+  +-- k3s-master
+  +-- k3s-worker1
+  +-- k3s-worker2
+  X-- Jenkins
+
+Jenkins lifecycle
+  |
+  +-- jenkins-up.ps1
+  +-- jenkins-status.ps1
+  +-- Jenkins VM snapshots
+  +-- jenkins-destroy.ps1
+```
