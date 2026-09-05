@@ -1,2 +1,4 @@
 https://github.com/btkrausen/hashicorp/tree/master/terraform
 
+vault status
+vault operator init -key-shares 5 -key-threshold 3 
