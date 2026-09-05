@@ -75,7 +75,13 @@ vault write auth/approle/login \
   secret_id="<SECRET_ID>"
 
 
-
+# keep that in mind when you're working with audit devices
+# it's important to enable and use more than one audit device, because if you're simply using
+# one and it's unavailable, vault will no longer respond to clients until it can actually write that audit
+vault login <root_token>
+vault audit list 
+vault audit enable file file_path=/vault/logs/vault_audit.log --description="File audit log"
+vault audit list --detailed
 
 
 
