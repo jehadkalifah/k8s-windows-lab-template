@@ -1,6 +1,3 @@
-https://github.com/btkrausen/hashicorp/tree/master/terraform
-
-
 kubectl -n vault exec -it vault-0 -- sh
 vault status
 vault operator init -key-shares 5 -key-threshold 3 
@@ -28,6 +25,54 @@ vault auth enable approle
 vault auth enable -path=vault-course approle
 vault auth disable approle
 vault auth list
+
+
+# They are two separate authentication methods:
+# - Human login: admin → Userpass → admin policy
+# - Machine/service login: demo AppRole → RoleID + SecretID → demo policy
+
+cat > /tmp/admin.hcl <<'EOF'
+path "*" {
+  capabilities = ["create", "read", "update", "patch", "delete", "list", "sudo"]
+}
+EOF
+
+vault policy write admin /tmp/admin.hcl
+vault policy read admin
+
+vault auth enable userpass
+vault policy list
+vault write auth/userpass/users/admin password=admin policies=admin
+vault list auth/userpass/users
+vault read auth/userpass/users/admin
+vault login -method=userpass username=admin 
+vault policy list
+
+
+vault auth enable approle
+cat > /tmp/demo.hcl <<'EOF'
+path "secret/data/demo/*" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+
+path "secret/metadata/demo/*" {
+  capabilities = ["read", "list", "delete"]
+}
+EOF
+
+vault policy write demo /tmp/demo.hcl
+vault policy read demo
+vault write auth/approle/role/demo \
+  token_policies="demo" \
+  token_ttl="1h" \
+  token_max_ttl="4h" \
+  secret_id_ttl="24h" \
+  secret_id_num_uses=10
+vault read auth/approle/role/demo/role-id
+vault write -f auth/approle/role/demo/secret-id
+vault write auth/approle/login \
+  role_id="<ROLE_ID>" \
+  secret_id="<SECRET_ID>"
 
 
 
