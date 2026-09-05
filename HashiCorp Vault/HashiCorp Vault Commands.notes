@@ -1,0 +1,50 @@
+https://github.com/btkrausen/hashicorp/tree/master/terraform
+
+
+kubectl -n vault exec -it vault-0 -- sh
+vault status
+vault operator init -key-shares 5 -key-threshold 3 
+
+# repeat the unseal command 3 times with different unseal keys to unseal the vault
+vault operator unseal <unseal_key_1>
+vault operator unseal <unseal_key_2>
+vault operator unseal <unseal_key_3>
+vault status
+
+vault login <root_token>
+vault secrets list
+vault auth list
+
+
+vault token lookup
+vault token lookup <VAULT_TOKEN>
+vault token create 
+vault token revoke <VAULT_TOKEN>
+vault token create -policy=demo -orphan -ttl=1h -renewable=true
+vault token renew <VAULT_TOKEN>
+
+
+vault auth enable approle
+vault auth enable -path=vault-course approle
+vault auth disable approle
+vault auth list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+kubectl -n vault exec -it vault-1 -- \
+  vault operator raft join http://vault-0.vault-internal:8200

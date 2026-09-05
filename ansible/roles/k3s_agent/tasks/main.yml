@@ -1,4 +1,0 @@
----
-- name: Verify K3s agent
-  command: systemctl is-active k3s-agent
-  changed_when: false
