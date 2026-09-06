@@ -1,6 +1,8 @@
 kubectl -n vault exec -it vault-0 -- sh
 vault status
 vault operator init -key-shares 5 -key-threshold 3 
+kubectl -n vault exec -it vault-1 -- \
+  vault operator raft join http://vault-0.vault-internal:8200
 
 # repeat the unseal command 3 times with different unseal keys to unseal the vault
 vault operator unseal <unseal_key_1>
@@ -83,6 +85,27 @@ vault audit list
 vault audit enable file file_path=/vault/logs/vault_audit.log --description="File audit log"
 vault audit list --detailed
 
+# So once a secrets engine is enabled, vault needs to be able to authenticate and communicate with the
+# platform in order to generate dynamic credentials for its clients
+vault secrets enable aws
+vault write aws/config/root \
+  access_key=<AWS_ACCESS_KEY> \
+  secret_key=<AWS_SECRET_KEY> \
+  region=us-east-1
+vault read aws/config/root
+# Role allows vault to generate AWS credentials with the AmazonS3FullAccess policy attached to them
+vault write aws/roles/s3fullaccess \
+  credential_type=iam_user \
+  policy_arn=arn:aws:iam::aws:policy/AmazonS3FullAccess
+vault list aws/roles
+vault read aws/roles/s3fullaccess
+# Dynamic credentials are generated on demand and are unique to each request. This means that each time a client requests AWS credentials from vault, a new set of credentials is generated with a unique access key and secret key.
+vault read aws/creds/s3fullaccess
+vault secrets disable aws
+vault secrets tune -max-lease-ttl=24h aws
+vault secrets move -path=aws aws
+vault secrets enable -path=secret kv-v2
+vault secrets list
 
 
 
@@ -96,6 +119,3 @@ vault audit list --detailed
 
 
 
-
-kubectl -n vault exec -it vault-1 -- \
-  vault operator raft join http://vault-0.vault-internal:8200
