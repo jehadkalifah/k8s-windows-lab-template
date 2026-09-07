@@ -7,3 +7,4 @@
 .DS_Store
 
 scripts/lab-config.ps1
+jenkins-agent-manager.kubeconfig
