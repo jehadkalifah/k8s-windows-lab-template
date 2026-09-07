@@ -62,6 +62,7 @@ longhorn
 vault
 monitoring
 argocd
+reloader
 istio
 kiali
 keycloak
@@ -87,6 +88,7 @@ cert-manager:          v1.21.1
 Longhorn:              1.12.1
 kube-prometheus-stack: 88.5.4
 Argo CD chart:         10.4.0
+Stakater Reloader:    chart 2.2.16 / app v1.4.21
 Istio:                 1.31.0
 MetalLB:               0.16.1
 Velero chart:          12.1.0
@@ -169,4 +171,31 @@ Database PVC:
 data-keycloak-postgres-0
 10Gi
 StorageClass: longhorn
+```
+
+
+## Stakater Reloader
+
+Reloader is installed after Argo CD and before Istio in the complete Stage 2
+order.
+
+```powershell
+.\scripts\deploy.ps1 reloader
+.\scripts\deployment-status.ps1 reloader
+.\scripts\remove-deployment.ps1 reloader
+```
+
+Pinned:
+
+```text
+Reloader chart: 2.2.16
+Reloader app:   v1.4.21
+```
+
+Reloader has no UI and no PVC. Workloads must opt in explicitly with:
+
+```yaml
+metadata:
+  annotations:
+    reloader.stakater.com/auto: "true"
 ```

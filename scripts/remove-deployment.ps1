@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("argocd","cert-manager","istio","keycloak","kiali","longhorn","monitoring","vault","velero")]
+    [ValidateSet("argocd","cert-manager","istio","keycloak","kiali","longhorn","monitoring","reloader","vault","velero")]
     [string]$Component,
 
     [switch]$PurgePrerequisites,
@@ -31,6 +31,10 @@ try {
         }
         "monitoring" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/monitoring/remove.sh"
+        }
+
+        "reloader" {
+            vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/reloader/remove.sh"
         }
 
         "kiali" {

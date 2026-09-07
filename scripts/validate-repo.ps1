@@ -221,6 +221,39 @@ foreach ($file in $jenkinsLifecycleFiles) {
     }
 }
 
+
+# Stakater Reloader Stage 2 validation
+$reloaderFiles = @(
+    "deployments\reloader\values.yaml",
+    "deployments\reloader\install.sh",
+    "deployments\reloader\status.sh",
+    "deployments\reloader\remove.sh",
+    "deployments\reloader\README.md",
+    "deployments\reloader\examples\workload.yaml"
+)
+foreach ($file in $reloaderFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Reloader file: $file"
+    }
+}
+
+$deployScript = Get-Content (Join-Path $RepoRoot "scripts\deploy.ps1") -Raw
+$statusScript = Get-Content (Join-Path $RepoRoot "scripts\deployment-status.ps1") -Raw
+$reloaderValues = Get-Content (Join-Path $RepoRoot "deployments\reloader\values.yaml") -Raw
+
+if ($deployScript -notmatch '"argocd","reloader","istio"') {
+    $failures += "Reloader is not in the expected Stage 2 order after Argo CD and before Istio."
+}
+if ($statusScript -notmatch '"argocd","reloader","istio"') {
+    $failures += "Reloader is missing from the complete Stage 2 status order."
+}
+if ($reloaderValues -notmatch 'reloadStrategy:\s*annotations') {
+    $failures += "Reloader is not configured with the annotations reload strategy."
+}
+if ($reloaderValues -notmatch 'autoReloadAll:\s*false') {
+    $failures += "Reloader must use explicit workload opt-in."
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

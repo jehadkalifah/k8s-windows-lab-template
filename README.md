@@ -4715,3 +4715,244 @@ Useful Jenkins commands:
 .\scripts\jenkins-shutdown.ps1
 .\scripts\jenkins-status.ps1
 ```
+
+---
+
+# Stakater Reloader — Automatic ConfigMap and Secret Rollouts
+
+Stakater Reloader is now included as a Stage 2 Kubernetes component.
+
+Pinned versions:
+
+```text
+Reloader Helm chart: 2.2.16
+Reloader app:        v1.4.21
+```
+
+## Superseding Stage 2 order
+
+This order supersedes earlier Stage 2 order examples in this README:
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Stakater Reloader
+7. Istio + Gateway API + MetalLB
+8. Kiali Operator + Kiali
+9. Keycloak Operator + PostgreSQL
+10. Velero + MinIO
+11. Shared Gateway publishing / HTTPRoutes
+```
+
+Therefore:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+now includes Reloader automatically.
+
+Reloader has no browser UI, so it is intentionally **not** added to
+`publish.ps1`. `publish.ps1 all` continues to manage only browser-facing
+routes and the external Jenkins bridge.
+
+## What Reloader does
+
+A workload can consume a Kubernetes Secret or ConfigMap through environment
+variables or mounted configuration.
+
+When that referenced resource changes, Reloader can trigger a Kubernetes
+rolling update so newly started Pods consume the new configuration.
+
+```text
+Secret / ConfigMap update
+        |
+        v
+Stakater Reloader
+        |
+        v
+Deployment / StatefulSet / DaemonSet rolling update
+        |
+        v
+replacement Pods start with the new configuration
+```
+
+This is useful with the lab's Vault/GitOps model:
+
+```text
+Vault or another secret/config workflow
+        |
+        v
+Kubernetes Secret / ConfigMap changes
+        |
+        v
+Reloader
+        |
+        v
+only opted-in application workloads roll
+```
+
+## GitOps-friendly configuration
+
+The repository configures:
+
+```yaml
+reloader:
+  watchGlobally: true
+  autoReloadAll: false
+  reloadStrategy: annotations
+  ignoreJobs: true
+  ignoreCronJobs: true
+  reloadOnCreate: false
+  reloadOnDelete: false
+```
+
+The important choices are:
+
+```text
+reloadStrategy: annotations
+```
+
+This is selected for the Argo CD-oriented lab.
+
+And:
+
+```text
+autoReloadAll: false
+```
+
+prevents Reloader from restarting every workload automatically.
+
+Applications opt in explicitly.
+
+## Opt a workload into Reloader
+
+For both referenced Secrets and ConfigMaps:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-api
+  namespace: my-app
+  annotations:
+    reloader.stakater.com/auto: "true"
+```
+
+For Secret changes only:
+
+```yaml
+metadata:
+  annotations:
+    secret.reloader.stakater.com/auto: "true"
+```
+
+For ConfigMap changes only:
+
+```yaml
+metadata:
+  annotations:
+    configmap.reloader.stakater.com/auto: "true"
+```
+
+A complete example is included at:
+
+```text
+deployments/reloader/examples/workload.yaml
+```
+
+The example is not installed automatically.
+
+## Install Reloader only
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 reloader
+```
+
+## Status
+
+```powershell
+.\scripts\deployment-status.ps1 reloader
+```
+
+The status shows:
+
+```text
+Helm release
+Reloader Deployment
+Reloader Pod
+controller arguments
+expected reload policy
+workloads explicitly opted in with reloader.stakater.com/auto=true
+```
+
+The complete status command also includes Reloader:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+## Remove
+
+```powershell
+.\scripts\remove-deployment.ps1 reloader
+```
+
+Removing Reloader does not remove application Deployments, Secrets or
+ConfigMaps.
+
+Existing application annotations such as:
+
+```yaml
+reloader.stakater.com/auto: "true"
+```
+
+are harmless while the controller is absent.
+
+## Persistence
+
+Reloader does **not** require a PVC.
+
+```text
+Reloader
+  |
+  +-- Kubernetes controller
+  +-- watches Secret/ConfigMap events
+  +-- patches opted-in workloads
+  X-- persistent application data
+```
+
+No Longhorn volume is created for Reloader.
+
+## No Gateway route
+
+Reloader is a controller, not a browser application.
+
+Therefore there is no:
+
+```text
+/reloader
+HTTPRoute
+Gateway backend
+MetalLB address
+```
+
+for this component.
+
+## Recommended application policy
+
+For this lab, prefer explicit opt-in:
+
+```yaml
+reloader.stakater.com/auto: "true"
+```
+
+only on applications that are safe to roll automatically.
+
+Avoid enabling automatic reload globally for every workload, especially
+stateful/platform components whose restart behavior should be controlled
+deliberately.
