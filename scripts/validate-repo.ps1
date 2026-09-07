@@ -207,6 +207,20 @@ if ($vmPoints -notmatch 'Jenkins remains stopped by design') {
     $failures += "vm-points.ps1 does not document Jenkins remaining stopped."
 }
 
+
+# Jenkins dedicated lifecycle validation
+$jenkinsLifecycleFiles = @(
+    "scripts\jenkins-run.ps1",
+    "scripts\jenkins-suspend.ps1",
+    "scripts\jenkins-resume.ps1",
+    "scripts\jenkins-shutdown.ps1"
+)
+foreach ($file in $jenkinsLifecycleFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Jenkins lifecycle file: $file"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

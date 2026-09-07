@@ -4604,3 +4604,114 @@ Jenkins lifecycle
   +-- Jenkins VM snapshots
   +-- jenkins-destroy.ps1
 ```
+
+---
+
+# Jenkins Dedicated Lifecycle Scripts
+
+Jenkins now has its own lifecycle commands. These commands manage **only** the
+`jenkins` Vagrant VM and never start, stop, suspend or resume the three K3s
+nodes.
+
+## Run Jenkins
+
+Use this when Jenkins already exists and should be started without
+reprovisioning:
+
+```powershell
+.\scripts\jenkins-run.ps1
+```
+
+Behavior:
+
+```text
+running    -> leave running
+suspended  -> resume
+poweroff   -> vagrant up jenkins --no-provision
+not_created -> fail and instruct to use jenkins-up.ps1
+```
+
+After startup it verifies Vagrant SSH, the Jenkins systemd service and:
+
+```text
+http://127.0.0.1:8080/jenkins/login
+```
+
+Use `jenkins-up.ps1` only when the Jenkins VM must be created/provisioned:
+
+```powershell
+.\scripts\jenkins-up.ps1
+```
+
+## Suspend Jenkins
+
+```powershell
+.\scripts\jenkins-suspend.ps1
+```
+
+Only the Jenkins VM is suspended. The K3s VMs are untouched.
+
+## Resume Jenkins
+
+```powershell
+.\scripts\jenkins-resume.ps1
+```
+
+Behavior:
+
+```text
+running    -> leave running
+suspended  -> vagrant resume jenkins
+poweroff   -> vagrant up jenkins --no-provision
+```
+
+Afterward the script verifies Jenkins SSH and `/jenkins` availability.
+
+## Shut down Jenkins
+
+```powershell
+.\scripts\jenkins-shutdown.ps1
+```
+
+For a running Jenkins VM this performs a normal:
+
+```text
+vagrant halt jenkins
+```
+
+If Jenkins is suspended, the script resumes it first and then performs a clean
+shutdown so the final state is `poweroff` rather than `saved`.
+
+## Jenkins vs Kubernetes lifecycle
+
+```text
+Kubernetes lifecycle commands
+  up.ps1
+  run.ps1
+  down.ps1
+  suspend.ps1
+  resume.ps1
+        |
+        +-- k3s-master
+        +-- k3s-worker1
+        +-- k3s-worker2
+        X-- jenkins
+
+Jenkins lifecycle commands
+  jenkins-run.ps1
+  jenkins-suspend.ps1
+  jenkins-resume.ps1
+  jenkins-shutdown.ps1
+        |
+        +-- jenkins only
+```
+
+Useful Jenkins commands:
+
+```powershell
+.\scripts\jenkins-run.ps1
+.\scripts\jenkins-suspend.ps1
+.\scripts\jenkins-resume.ps1
+.\scripts\jenkins-shutdown.ps1
+.\scripts\jenkins-status.ps1
+```
