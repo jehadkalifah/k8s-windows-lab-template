@@ -43,7 +43,6 @@ write-kubeconfig-mode: "0600"
 disable:
   - traefik
   - servicelb
-  - local-storage
 tls-san:
   - "${MGMT_IP}"
 EOF
@@ -71,6 +70,32 @@ done
 
 if [ ! -s /var/lib/rancher/k3s/server/node-token ]; then
   echo "K3s server token was not created." >&2
+  exit 1
+fi
+
+
+# K3s normally deploys the Rancher Local Path Provisioner unless the
+# local-storage packaged component is explicitly disabled.
+for i in $(seq 1 90); do
+  if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get storageclass local-path >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+if ! KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get storageclass local-path >/dev/null 2>&1; then
+  echo "K3s local-path StorageClass was not created." >&2
+  echo "Check the K3s local-storage packaged component." >&2
+  exit 1
+fi
+
+LOCAL_PATH_PROVISIONER="$(
+  KUBECONFIG=/etc/rancher/k3s/k3s.yaml \
+  kubectl get storageclass local-path -o jsonpath='{.provisioner}' 2>/dev/null || true
+)"
+
+if [ "${LOCAL_PATH_PROVISIONER}" != "rancher.io/local-path" ]; then
+  echo "Unexpected local-path provisioner: ${LOCAL_PATH_PROVISIONER:-<empty>}" >&2
   exit 1
 fi
 

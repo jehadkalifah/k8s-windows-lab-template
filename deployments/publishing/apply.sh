@@ -154,6 +154,46 @@ configure_vault() {
   echo "Vault UI:    http://${host}/"
 }
 
+
+configure_harbor() {
+  local ip="$1"
+
+  if ! kubectl -n harbor get service harbor >/dev/null 2>&1; then
+    echo "SKIP: Harbor is not installed."
+    return
+  fi
+
+  local ip_dash="${ip//./-}"
+  local host="${HARBOR_PUBLISH_HOST:-harbor.${ip_dash}.nip.io}"
+  local rendered="/tmp/harbor-publishing.yaml"
+
+  echo "Reconciling Harbor publishing:"
+  echo "  Gateway IP: ${ip}"
+  echo "  Hostname:   ${host}"
+
+  sed "s/__HARBOR_HOST__/${host}/g" \
+    /vagrant/deployments/publishing/routes/harbor.yaml \
+    > "${rendered}"
+
+  kubectl -n harbor delete httproute harbor-ui --ignore-not-found=true --wait=true
+  kubectl apply -f "${rendered}"
+
+  local live_host=""
+  for i in $(seq 1 20); do
+    live_host="$(kubectl -n harbor get httproute harbor-ui \
+      -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)"
+    [ "${live_host}" = "${host}" ] && break
+    sleep 1
+  done
+
+  if [ "${live_host}" != "${host}" ]; then
+    echo "ERROR: Harbor HTTPRoute hostname reconciliation failed." >&2
+    exit 1
+  fi
+
+  echo "Harbor UI / registry: http://${host}/"
+}
+
 configure_monitoring() {
   if ! kubectl -n monitoring get service monitoring-grafana >/dev/null 2>&1; then
     echo "SKIP: monitoring is not installed."
@@ -353,6 +393,9 @@ case "${COMPONENT}" in
   keycloak)
     configure_keycloak "${IP}"
     ;;
+  harbor)
+    configure_harbor "${IP}"
+    ;;
   jenkins)
     configure_jenkins "${IP}"
     ;;
@@ -364,6 +407,7 @@ case "${COMPONENT}" in
     configure_argocd
     configure_kiali "${IP}"
     configure_keycloak "${IP}"
+    configure_harbor "${IP}"
     configure_jenkins "${IP}"
     configure_velero "${IP}"
     ;;

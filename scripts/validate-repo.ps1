@@ -254,6 +254,145 @@ if ($reloaderValues -notmatch 'autoReloadAll:\s*false') {
     $failures += "Reloader must use explicit workload opt-in."
 }
 
+
+# Harbor Stage 2 validation
+$harborFiles = @(
+    "deployments\harbor\values.yaml.tpl",
+    "deployments\harbor\install.sh",
+    "deployments\harbor\status.sh",
+    "deployments\harbor\remove.sh",
+    "deployments\harbor\admin.sh",
+    "deployments\publishing\routes\harbor.yaml",
+    "scripts\harbor-install.ps1",
+    "scripts\harbor-status.ps1",
+    "scripts\harbor-remove.ps1",
+    "scripts\harbor-admin.ps1"
+)
+foreach ($file in $harborFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $file))) {
+        $failures += "Missing Harbor file: $file"
+    }
+}
+
+$harborWrapper = Get-Content (Join-Path $RepoRoot "scripts\harbor-install.ps1") -Raw
+if ($harborWrapper -match 'Get-Command\s+(kubectl|helm)' -or
+    $harborWrapper -match '(?m)^\s*(kubectl|helm)\s') {
+    $failures += "Harbor Windows wrapper must not require local kubectl/helm."
+}
+if ($deployScript -notmatch '"keycloak","harbor","velero"') {
+    $failures += "Harbor is not in the expected Stage 2 order."
+}
+if ($statusScript -notmatch '"keycloak","harbor","velero"') {
+    $failures += "Harbor is missing from complete Stage 2 status."
+}
+
+
+
+
+# Harbor local-path storage validation
+$harborValues = Join-Path $RepoRoot "deployments\harbor\values.yaml.tpl"
+$harborInstall = Join-Path $RepoRoot "deployments\harbor\install.sh"
+$harborRemove = Join-Path $RepoRoot "deployments\harbor\remove.sh"
+
+if (Test-Path (Join-Path $RepoRoot "deployments\harbor\storageclass.yaml")) {
+    $failures += "Obsolete Harbor longhorn-harbor StorageClass manifest still exists."
+}
+
+$harborValuesText = Get-Content $harborValues -Raw
+if ($harborValuesText -match 'storageClass:\s*longhorn') {
+    $failures += "Harbor values must not reference Longhorn."
+}
+if (($harborValuesText | Select-String -Pattern 'storageClass:\s*local-path' -AllMatches).Matches.Count -lt 5) {
+    $failures += "All five Harbor PVC definitions must use local-path."
+}
+
+$harborInstallText = Get-Content $harborInstall -Raw
+if ($harborInstallText -notmatch 'kubectl get storageclass local-path') {
+    $failures += "Harbor installer does not verify local-path."
+}
+if ($harborInstallText -notmatch 'rancher\.io/local-path') {
+    $failures += "Harbor installer does not verify the local-path provisioner."
+}
+if ($harborInstallText -match 'storageclass\.yaml') {
+    $failures += "Harbor installer still references the obsolete custom StorageClass."
+}
+if ($harborInstallText -notmatch 'Existing Harbor PVCs use an incompatible StorageClass') {
+    $failures += "Harbor installer does not protect against old incompatible PVCs."
+}
+
+$harborRemoveText = Get-Content $harborRemove -Raw
+if ($harborRemoveText -match 'delete storageclass') {
+    $failures += "Harbor removal must never delete the cluster local-path StorageClass."
+}
+
+
+# K3s packaged local-storage validation
+$bootstrapMaster = Join-Path $RepoRoot "ansible\bootstrap-master.sh"
+$localStorageEnsure = Join-Path $RepoRoot "deployments\k3s-local-storage\ensure.sh"
+$localStorageStatus = Join-Path $RepoRoot "deployments\k3s-local-storage\status.sh"
+$localStoragePs = Join-Path $RepoRoot "scripts\k3s-local-storage.ps1"
+
+$bootstrapMasterText = Get-Content $bootstrapMaster -Raw
+
+if ($bootstrapMasterText -match '(?m)^\s*-\s*local-storage\s*$') {
+    $failures += "Stage 1 must not disable the K3s local-storage packaged component."
+}
+
+foreach ($file in @($localStorageEnsure, $localStorageStatus, $localStoragePs)) {
+    if (-not (Test-Path $file)) {
+        $failures += "Missing K3s local-storage helper: $file"
+    }
+}
+
+if (Test-Path $localStorageEnsure) {
+    $ensureText = Get-Content $localStorageEnsure -Raw
+
+    if ($ensureText -notmatch 'config\.yaml\.before-local-storage-enable') {
+        $failures += "K3s local-storage repair must back up config.yaml."
+    }
+
+    if ($ensureText -notmatch 'local-storage.*disable') {
+        $failures += "K3s local-storage repair does not document/check the disabled packaged component."
+    }
+
+    if ($ensureText -notmatch 'systemctl restart k3s') {
+        $failures += "K3s local-storage repair does not restart K3s after config correction."
+    }
+
+    if ($ensureText -notmatch 'rancher\.io/local-path') {
+        $failures += "K3s local-storage repair does not verify the expected provisioner."
+    }
+}
+
+$harborInstallFinal = Get-Content (Join-Path $RepoRoot "deployments\harbor\install.sh") -Raw
+if ($harborInstallFinal -notmatch 'k3s-local-storage/ensure\.sh') {
+    $failures += "Harbor installer must automatically ensure K3s local-storage."
+}
+
+
+# Harbor rendered StorageClass validation
+$harborInstallRenderCheck = Get-Content (Join-Path $RepoRoot "deployments\harbor\install.sh") -Raw
+
+if ($harborInstallRenderCheck -match "grep -c 'storageClassName: local-path'") {
+    $failures += "Harbor installer still uses brittle unquoted-only StorageClass validation."
+}
+
+if ($harborInstallRenderCheck -notmatch 'RENDERED_LOCAL_PATH_COUNT') {
+    $failures += "Harbor installer is missing rendered local-path validation."
+}
+
+if ($harborInstallRenderCheck -notmatch 'VALUES_LOCAL_PATH_COUNT') {
+    $failures += "Harbor installer is missing values-level local-path validation."
+}
+
+if ($harborInstallRenderCheck -notmatch '\\"\?local-path\\"\?') {
+    $failures += "Harbor rendered validation must accept quoted and unquoted local-path values."
+}
+
+if ($harborInstallRenderCheck -notmatch 'All rendered StorageClass lines') {
+    $failures += "Harbor rendered validation should print StorageClass diagnostics on failure."
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "Repository validation FAILED" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }

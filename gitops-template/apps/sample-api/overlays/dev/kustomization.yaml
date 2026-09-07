@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - ../../base
+replicas:
+  - name: sample-api
+    count: 1
+images:
+  - name: sample-api
+    newName: jed.ocir.io/CHANGE_ME/sample-api
+    newTag: "initial"

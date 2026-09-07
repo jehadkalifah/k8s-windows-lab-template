@@ -4956,3 +4956,804 @@ only on applications that are safe to roll automatically.
 Avoid enabling automatic reload globally for every workload, especially
 stateful/platform components whose restart behavior should be controlled
 deliberately.
+
+---
+
+# Harbor Stage 2 Deployment — Vagrant/K3s Execution Model
+
+Harbor is now integrated using the **same Stage 2 deployment model** as
+Longhorn, Vault, Monitoring, Argo CD, Kiali, Keycloak, Velero and Reloader.
+
+This section supersedes any Harbor instructions that require local Windows
+`kubectl` or `helm`.
+
+## Execution model
+
+```text
+Windows PowerShell
+       |
+       | vagrant ssh k3s-master
+       v
+k3s-master
+       |
+       +-- kubectl
+       +-- helm
+       |
+       v
+Kubernetes
+```
+
+The Windows host does not need local `kubectl` or local `helm` for Harbor.
+
+## Pinned version
+
+```text
+Harbor Helm chart: 1.19.1
+Harbor app:        2.15.1
+```
+
+## Updated Stage 2 order
+
+```text
+1. cert-manager
+2. Longhorn
+3. HashiCorp Vault
+4. Monitoring
+5. Argo CD
+6. Stakater Reloader
+7. Istio + Gateway API + MetalLB
+8. Kiali Operator + Kiali
+9. Keycloak Operator + PostgreSQL
+10. Harbor private registry
+11. Velero + MinIO
+12. Shared Gateway publishing / HTTPRoutes
+```
+
+## Deploy Harbor
+
+```powershell
+cd D:\k8s-windows-lab-template
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 harbor
+```
+
+The compatibility helper also uses the same Stage 2 path:
+
+```powershell
+.\scripts\harbor-install.ps1
+```
+
+It does not call local `kubectl` or `helm`.
+
+The flow is:
+
+```text
+harbor-install.ps1
+        |
+        v
+deploy.ps1 harbor
+        |
+        v
+vagrant ssh k3s-master
+        |
+        v
+deployments/harbor/install.sh
+        |
+        +-- kubectl
+        +-- helm
+```
+
+## Automatic deployment actions
+
+The Harbor Stage 2 installer automatically:
+
+```text
+1. verifies K3s nodes are Ready
+2. verifies Longhorn exists
+3. verifies the shared Istio Gateway is Programmed
+4. reads the actual Gateway IP
+5. derives the Harbor nip.io hostname
+6. creates/preserves Harbor credentials
+7. renders Harbor externalURL
+8. installs/upgrades Harbor with Helm
+9. waits for Harbor workloads
+10. verifies Harbor PVCs/services
+11. publishes Harbor through the shared Gateway
+```
+
+No manual Harbor Kubernetes installation commands are required on Windows.
+
+## Harbor URL
+
+With the default Gateway IP:
+
+```text
+192.168.100.240
+```
+
+Harbor is published at:
+
+```text
+http://harbor.192-168-100-240.nip.io/
+```
+
+Optional hostname override:
+
+```powershell
+$env:HARBOR_PUBLISH_HOST = ""
+```
+
+Leave it empty for automatic `nip.io` generation.
+
+## Persistence
+
+Harbor uses Longhorn:
+
+```text
+registry:   5Gi
+jobservice: 1Gi
+database:   2Gi
+redis:      1Gi
+trivy:      1Gi
+```
+
+These are intentionally small lab sizes.
+
+## Status
+
+```powershell
+.\scripts\deployment-status.ps1 harbor
+```
+
+or:
+
+```powershell
+.\scripts\harbor-status.ps1
+```
+
+Full Stage 2 status now includes Harbor:
+
+```powershell
+.\scripts\deployment-status.ps1 all
+```
+
+## Admin password
+
+```powershell
+.\scripts\harbor-admin.ps1
+```
+
+Username:
+
+```text
+admin
+```
+
+## Publishing
+
+Publishing is automatically reconciled after deployment.
+
+You can also re-run it with:
+
+```powershell
+.\scripts\publish.ps1 harbor
+```
+
+Check:
+
+```powershell
+.\scripts\publishing-status.ps1
+```
+
+## Remove
+
+Preserve Harbor persistent data:
+
+```powershell
+.\scripts\remove-deployment.ps1 harbor
+```
+
+Delete Harbor including its namespace and PVCs:
+
+```powershell
+.\scripts\remove-deployment.ps1 harbor -Force
+```
+
+## Deploy all
+
+Harbor is included in:
+
+```powershell
+.\scripts\deploy.ps1 all
+```
+
+## Lab HTTP note
+
+The existing shared Gateway is HTTP-only, so this Harbor endpoint is intended
+for lab/testing use. Production registry use should be HTTPS.
+
+---
+
+# Harbor Longhorn Capacity Correction
+
+The original Harbor lab configuration used the platform default:
+
+```text
+StorageClass: longhorn
+numberOfReplicas: 2
+```
+
+for every Harbor PVC.
+
+That configuration can exceed the available Longhorn replica capacity in this
+small three-node lab. The failure appears as:
+
+```text
+AttachVolume.Attach failed
+volume is currently in detached state with some un-schedulable replicas
+```
+
+and Longhorn reports:
+
+```text
+ReplicaSchedulingFailure
+precheck new replica failed: disks are unavailable; insufficient storage
+```
+
+This correction supersedes the earlier Harbor persistence sizes and
+StorageClass guidance.
+
+## Correct Harbor storage model
+
+The repository now creates:
+
+```text
+StorageClass: longhorn-harbor
+numberOfReplicas: 1
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+```
+
+This StorageClass is used **only by Harbor**.
+
+The main platform StorageClass remains:
+
+```text
+StorageClass: longhorn
+numberOfReplicas: 2
+```
+
+for Vault, Keycloak and other workloads where two replicas are still desired.
+
+## Correct Harbor PVC sizes
+
+Harbor now requests:
+
+```text
+registry:   2Gi
+jobservice: 1Gi
+database:   1Gi
+redis:      1Gi
+trivy:      1Gi
+```
+
+Total logical Harbor storage:
+
+```text
+6Gi
+```
+
+With the Harbor-specific one-replica StorageClass, this is approximately 6Gi
+of requested Longhorn replica capacity.
+
+The earlier configuration requested:
+
+```text
+registry:   5Gi x 2
+database:   2Gi x 2
+redis:      1Gi x 2
+jobservice: 1Gi x 2
+trivy:      1Gi x 2
+```
+
+which was approximately 20Gi of replica scheduling pressure.
+
+## Existing failed Harbor installation
+
+Changing Helm values cannot change the StorageClass of an already-created PVC,
+and Kubernetes/Longhorn cannot shrink an existing PVC.
+
+Therefore an existing fresh Harbor installation created with:
+
+```text
+StorageClass: longhorn
+```
+
+must be recreated before the corrected settings can take effect.
+
+If Harbor contains no data you need:
+
+```powershell
+.\scripts\remove-deployment.ps1 harbor -Force
+.\scripts\deploy.ps1 harbor
+```
+
+The corrected installer now detects old Harbor PVCs using the wrong
+StorageClass and stops with this remediation instead of continuing into another
+detached/faulted state.
+
+## Verify the corrected installation
+
+```powershell
+.\scripts\deployment-status.ps1 harbor
+```
+
+The status now shows:
+
+```text
+longhorn-harbor StorageClass
+Harbor PVC StorageClass and size
+Longhorn numberOfReplicas
+Longhorn state
+Longhorn robustness
+Longhorn Scheduled condition
+Replica scheduling message when present
+```
+
+Expected Harbor PVCs:
+
+```text
+data-harbor-redis-0               longhorn-harbor   1Gi
+data-harbor-trivy-0               longhorn-harbor   1Gi
+database-data-harbor-database-0   longhorn-harbor   1Gi
+harbor-jobservice                 longhorn-harbor   1Gi
+harbor-registry                   longhorn-harbor   2Gi
+```
+
+Expected Longhorn setting for each new Harbor volume:
+
+```text
+numberOfReplicas: 1
+```
+
+## Long-term production-style fix
+
+This Harbor-specific one-replica model is appropriate for the disposable local
+testing registry.
+
+For a production-style environment, increase or dedicate Longhorn storage
+capacity and use more than one replica for registry/database persistence rather
+than relying on the reduced lab redundancy.
+
+---
+
+# Harbor Storage Final Correction — K3s local-path
+
+The Harbor-specific one-replica Longhorn StorageClass did not fully solve the
+lab's storage pressure. Longhorn still needs enough free schedulable disk space
+for the single replica, so Harbor could still report:
+
+```text
+AttachVolume.Attach failed
+volume is currently in detached state with some un-schedulable replicas
+```
+
+with Longhorn reporting:
+
+```text
+ReplicaSchedulingFailure
+disks are unavailable; insufficient storage
+```
+
+This section supersedes the previous Harbor Longhorn persistence guidance.
+
+## Final Harbor testing-storage design
+
+Harbor no longer uses Longhorn.
+
+All Harbor PVCs now use the K3s built-in StorageClass:
+
+```text
+StorageClass: local-path
+Provisioner:  rancher.io/local-path
+```
+
+The separation is now:
+
+```text
+Longhorn
+  |
+  +-- Vault
+  +-- Keycloak
+  +-- other platform workloads
+
+K3s local-path
+  |
+  +-- Harbor registry
+  +-- Harbor database
+  +-- Harbor Redis
+  +-- Harbor jobservice
+  +-- Harbor Trivy
+```
+
+This completely removes Harbor from Longhorn replica scheduling.
+
+## Harbor PVC requests
+
+```text
+registry:   2Gi
+jobservice: 1Gi
+database:   1Gi
+redis:      1Gi
+trivy:      1Gi
+```
+
+## Why local-path is appropriate here
+
+Harbor is currently a private registry for CI/CD testing.
+
+K3s `local-path` stores the volume on the filesystem of the node selected for
+the volume. It does not create Longhorn replicas.
+
+That makes it appropriate for this disposable lab while preserving Longhorn
+capacity for the platform components that benefit more from replicated
+storage.
+
+The tradeoff is:
+
+```text
+local-path
+  + simple
+  + no Longhorn capacity pressure
+  + good for local Harbor testing
+  - node-local
+  - not highly available
+```
+
+For production, use adequate replicated/distributed storage instead.
+
+## Existing Harbor installation must be recreated
+
+StorageClass cannot be changed on an existing PVC.
+
+If the current Harbor PVCs use either:
+
+```text
+longhorn
+```
+
+or:
+
+```text
+longhorn-harbor
+```
+
+and Harbor contains no data you need, run:
+
+```powershell
+.\scripts\remove-deployment.ps1 harbor -Force
+.\scripts\deploy.ps1 harbor
+```
+
+The corrected installer now detects incompatible existing PVCs and stops with
+this remediation rather than continuing.
+
+## Corrected installer validation
+
+Before Helm changes the cluster, the installer now verifies:
+
+```text
+local-path StorageClass exists
+provisioner = rancher.io/local-path
+rendered Harbor PVCs use local-path
+no rendered Harbor PVC uses Longhorn
+at least five local-path Harbor PVC templates are rendered
+```
+
+After installation it verifies every Harbor PVC uses:
+
+```text
+local-path
+```
+
+## Status
+
+```powershell
+.\scripts\deployment-status.ps1 harbor
+```
+
+The Harbor status now shows:
+
+```text
+Harbor workloads
+Harbor services
+K3s local-path StorageClass
+Harbor PVC name/status/size/StorageClass
+Harbor PV node affinity
+Harbor storage validation
+Harbor HTTPRoute
+```
+
+Expected PVCs:
+
+```text
+data-harbor-redis-0               local-path   1Gi
+data-harbor-trivy-0               local-path   1Gi
+database-data-harbor-database-0   local-path   1Gi
+harbor-jobservice                 local-path   1Gi
+harbor-registry                   local-path   2Gi
+```
+
+There should be no Harbor Longhorn volume object and therefore no Harbor
+Longhorn `ReplicaSchedulingFailure`.
+
+---
+
+# K3s local-storage Root Cause and Automatic Repair
+
+The Harbor `local-path` deployment initially failed with:
+
+```text
+ERROR: K3s local-path StorageClass was not found.
+```
+
+The root cause was found in the Stage 1 K3s configuration generated by this
+repository:
+
+```yaml
+disable:
+  - traefik
+  - servicelb
+  - local-storage
+```
+
+K3s normally includes Rancher's Local Path Provisioner as the `local-storage`
+packaged component. Disabling `local-storage` prevents creation of:
+
+```text
+StorageClass: local-path
+Provisioner:  rancher.io/local-path
+```
+
+This section supersedes the earlier Harbor instruction that only checked for
+`local-path` and failed when it was missing.
+
+## Correct Stage 1 configuration
+
+New clusters now use:
+
+```yaml
+disable:
+  - traefik
+  - servicelb
+```
+
+`local-storage` is intentionally **not disabled**.
+
+Traefik and ServiceLB remain disabled because the lab uses Istio/Gateway API and
+MetalLB.
+
+## Existing cluster automatic repair
+
+You do **not** need to rebuild the current cluster.
+
+When Harbor is deployed:
+
+```powershell
+.\scripts\deploy.ps1 harbor
+```
+
+the Harbor installer now automatically runs:
+
+```text
+deployments/k3s-local-storage/ensure.sh
+```
+
+on `k3s-master`.
+
+If `local-path` already exists, no restart occurs.
+
+If it is missing and the K3s config contains:
+
+```yaml
+- local-storage
+```
+
+the repair helper:
+
+```text
+1. saves a one-time backup of /etc/rancher/k3s/config.yaml
+2. removes only the "- local-storage" line
+3. leaves "- traefik" and "- servicelb" unchanged
+4. restarts the K3s server
+5. waits for the Kubernetes API
+6. waits for all K3s nodes to become Ready
+7. waits for StorageClass local-path
+8. verifies provisioner rancher.io/local-path
+9. continues Harbor installation
+```
+
+The one-time K3s config backup is:
+
+```text
+/etc/rancher/k3s/config.yaml.before-local-storage-enable
+```
+
+## Normal Harbor command
+
+Use the normal Stage 2 command:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 harbor
+```
+
+There is no separate required manual repair step.
+
+Expected output now includes something similar to:
+
+```text
+[2/8] Ensure K3s local-path StorageClass
+=== K3s local storage ===
+local-path StorageClass is missing.
+Found local-storage in the K3s disable list.
+Enabling the bundled K3s Local Path Provisioner...
+Restarting K3s server...
+Waiting for Kubernetes API...
+Waiting for cluster nodes...
+Waiting for K3s local-path StorageClass...
+K3s local storage is enabled.
+```
+
+Then Harbor continues with credential creation, Helm rendering and installation.
+
+## Optional local-storage status helper
+
+The repair is automatic, but the repo also provides:
+
+```powershell
+.\scripts\k3s-local-storage.ps1 status
+```
+
+To explicitly run the same idempotent repair:
+
+```powershell
+.\scripts\k3s-local-storage.ps1 ensure
+```
+
+This helper also runs through `vagrant ssh k3s-master`; Windows does not need
+local `kubectl`.
+
+## Verify after repair
+
+```powershell
+.\scripts\k3s-local-storage.ps1 status
+```
+
+Expected:
+
+```text
+disable:
+  - traefik
+  - servicelb
+
+local-path   rancher.io/local-path
+```
+
+Then Harbor should use:
+
+```text
+registry                              local-path   2Gi
+database-data-harbor-database-0       local-path   1Gi
+data-harbor-redis-0                   local-path   1Gi
+harbor-jobservice                     local-path   1Gi
+data-harbor-trivy-0                   local-path   1Gi
+```
+
+## Why this is the correct fix
+
+Do not install a second unrelated local-path provisioner into this K3s cluster.
+
+K3s already packages Rancher's Local Path Provisioner. The correct repair is to
+stop disabling the K3s `local-storage` packaged component and let K3s reconcile
+its own bundled storage provider.
+
+---
+
+# Harbor Helm Render Validation Correction
+
+After K3s `local-storage` was correctly restored, Harbor deployment could stop
+at:
+
+```text
+ERROR: expected at least five Harbor PVCs using local-path.
+Rendered local-path PVC count: 2
+```
+
+This was a repository validation bug, not another storage failure.
+
+The Harbor Helm chart can render StorageClass values in more than one valid
+YAML form.
+
+For example:
+
+```yaml
+storageClassName: local-path
+```
+
+and:
+
+```yaml
+storageClassName: "local-path"
+```
+
+are equivalent.
+
+The previous validation used an exact grep for only:
+
+```text
+storageClassName: local-path
+```
+
+so quoted StatefulSet volume claim templates were not counted.
+
+## Correct validation
+
+The installer now checks the Harbor values first:
+
+```text
+exactly five:
+storageClass: local-path
+```
+
+and then accepts both quoted and unquoted rendered forms:
+
+```text
+storageClassName: local-path
+storageClassName: "local-path"
+```
+
+It also rejects both:
+
+```text
+storageClassName: longhorn
+storageClassName: "longhorn"
+storageClassName: longhorn-harbor
+storageClassName: "longhorn-harbor"
+```
+
+If validation fails, all rendered StorageClass lines are printed automatically.
+
+## Normal deployment
+
+No manual correction is required.
+
+Run:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 harbor
+```
+
+Because `local-path` has already been repaired on the current cluster, the
+K3s local-storage helper should now report that it is already available and
+continue without restarting K3s.
+
+Expected storage validation output:
+
+```text
+Harbor storage validation passed:
+  values local-path selections:   5
+  rendered local-path references: 5
+```
+
+The rendered count can be greater than five if a future chart version adds
+another persistent Harbor component; the installer therefore requires at
+least five rendered references.
+
+After Helm installation, the installer verifies the actual Harbor PVCs:
+
+```text
+PVC count >= 5
+all Harbor PVCs use local-path
+```

@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - ../../base
+replicas:
+  - name: sample-api
+    count: 2
+images:
+  - name: sample-api
+    newName: harbor.192-168-100-240.nip.io/dev/sample-api
+    newTag: "initial"

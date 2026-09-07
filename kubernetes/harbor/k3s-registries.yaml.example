@@ -1,0 +1,7 @@
+# LAB ONLY: allows K3s/containerd to pull from the HTTP Harbor endpoint.
+# Copy to /etc/rancher/k3s/registries.yaml on every K3s server/agent and
+# restart K3s/K3s-agent on that node.
+mirrors:
+  "harbor.192-168-100-240.nip.io":
+    endpoint:
+      - "http://harbor.192-168-100-240.nip.io"

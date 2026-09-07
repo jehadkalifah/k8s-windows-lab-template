@@ -66,6 +66,7 @@ reloader
 istio
 kiali
 keycloak
+harbor
 velero
 ```
 
@@ -198,4 +199,66 @@ Reloader has no UI and no PVC. Workloads must opt in explicitly with:
 metadata:
   annotations:
     reloader.stakater.com/auto: "true"
+```
+
+
+## Harbor Private Registry
+
+Harbor follows the same Stage 2 execution model as the other platform
+components. Windows does not need local `kubectl` or `helm`.
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\deploy.ps1 harbor
+.\scripts\deployment-status.ps1 harbor
+.\scripts\harbor-admin.ps1
+```
+
+Pinned:
+
+```text
+Harbor Helm chart: 1.19.1
+Harbor app:        2.15.1
+```
+
+## Harbor storage final correction
+
+For this testing lab, Harbor uses the K3s `local-path` StorageClass rather than
+Longhorn. This supersedes earlier Harbor Longhorn storage guidance.
+
+```text
+registry   2Gi local-path
+database   1Gi local-path
+redis      1Gi local-path
+jobservice 1Gi local-path
+trivy      1Gi local-path
+```
+
+Use:
+
+```powershell
+.\scripts\remove-deployment.ps1 harbor -Force
+.\scripts\deploy.ps1 harbor
+```
+
+to recreate a fresh Harbor installation that was previously provisioned with a
+Longhorn StorageClass.
+
+## K3s local-storage correction for Harbor
+
+Stage 1 previously disabled the K3s `local-storage` packaged component. That
+prevented the `local-path` StorageClass from existing.
+
+New clusters no longer disable `local-storage`.
+
+Existing clusters are repaired automatically during:
+
+```powershell
+.\scripts\deploy.ps1 harbor
+```
+
+Optional status:
+
+```powershell
+.\scripts\k3s-local-storage.ps1 status
 ```

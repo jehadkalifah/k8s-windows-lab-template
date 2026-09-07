@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: buildkit-harbor-config
+  namespace: jenkins-agents
+data:
+  buildkitd.toml: |
+    [registry."harbor.192-168-100-240.nip.io"]
+      http = true
+      insecure = true

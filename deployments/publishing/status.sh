@@ -62,6 +62,10 @@ fi
 print_url argocd argocd-ui /argocd
 print_url istio-system kiali-ui /kiali
 print_url keycloak keycloak-ui /keycloak
+if kubectl -n harbor get httproute harbor-ui >/dev/null 2>&1; then
+  HARBOR_HOST="$(kubectl -n harbor get httproute harbor-ui -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)"
+  [ -n "${HARBOR_HOST}" ] && printf "%-15s http://%s/\n" "harbor" "${HARBOR_HOST}"
+fi
 print_url jenkins jenkins-http-route /jenkins
 print_url velero minio-console /minio/
 

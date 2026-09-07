@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("all","argocd","cert-manager","istio","keycloak","kiali","longhorn","monitoring","reloader","vault","velero")]
+    [ValidateSet("all","argocd","cert-manager","harbor","istio","keycloak","kiali","longhorn","monitoring","reloader","vault","velero")]
     [string]$Component
 )
 
@@ -45,6 +45,13 @@ function Invoke-Stage2Component {
         "keycloak" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/keycloak/install.sh"
         }
+        "harbor" {
+            $gatewayNamespace = if ($env:K8S_GATEWAY_NAMESPACE) { $env:K8S_GATEWAY_NAMESPACE } else { "istio-ingress" }
+            $gatewayName = if ($env:K8S_GATEWAY_NAME) { $env:K8S_GATEWAY_NAME } else { "public-gateway" }
+            $harborHost = if ($env:HARBOR_PUBLISH_HOST) { $env:HARBOR_PUBLISH_HOST } else { "" }
+            $remote = "sudo env GATEWAY_NAMESPACE='$gatewayNamespace' GATEWAY_NAME='$gatewayName' HARBOR_PUBLISH_HOST='$harborHost' bash /vagrant/deployments/harbor/install.sh"
+            vagrant ssh k3s-master -c $remote
+        }
         "velero" {
             vagrant ssh k3s-master -c "sudo bash /vagrant/deployments/velero/install.sh"
         }
@@ -58,7 +65,7 @@ function Invoke-Stage2Component {
     if ($Name -eq "istio") {
         & "$PSScriptRoot\publish.ps1" all
     }
-    elseif ($Name -in @("longhorn","vault","monitoring","argocd","kiali","keycloak","velero")) {
+    elseif ($Name -in @("longhorn","vault","monitoring","argocd","kiali","keycloak","harbor","velero")) {
         & "$PSScriptRoot\publish.ps1" $Name
     }
 }
@@ -87,11 +94,12 @@ try {
         # 7. Istio + Gateway API + MetalLB
         # 8. Kiali Operator + Kiali
         # 9. Keycloak Operator + PostgreSQL
-        # 10. Velero + MinIO
+        # 10. Harbor private registry
+        # 11. Velero + MinIO
         #
         # Browser-facing components installed before Istio are reconciled by
         # publish.ps1 all immediately after the shared Gateway is installed.
-        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","reloader","istio","kiali","keycloak","velero")) {
+        foreach ($item in @("cert-manager","longhorn","vault","monitoring","argocd","reloader","istio","kiali","keycloak","harbor","velero")) {
             Invoke-Stage2Component $item
         }
     }
