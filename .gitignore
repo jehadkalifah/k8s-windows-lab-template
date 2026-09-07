@@ -2,9 +2,9 @@
 .kube/*.yaml
 .k3s-token
 *.log
+.vs/
 .vscode/
 .idea/
 .DS_Store
 
 scripts/lab-config.ps1
-jenkins-agent-manager.kubeconfig
