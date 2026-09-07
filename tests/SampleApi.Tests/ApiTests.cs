@@ -15,14 +15,14 @@ public class ApiTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task HealthEndpoint_ReturnsSuccess()
     {
-        var response = await _client.GetAsync("/healthz");
+        var response = await _client.GetAsync("/sample-api/healthz");
         response.EnsureSuccessStatusCode();
     }
 
     [Fact]
     public async Task HelloEndpoint_ReturnsExpectedMessage()
     {
-        var response = await _client.GetStringAsync("/api/hello");
+        var response = await _client.GetStringAsync("/sample-api/api/hello");
         Assert.Contains("Hello from Jenkins", response);
     }
 }
