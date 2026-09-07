@@ -188,6 +188,23 @@ kubectl get nodes -o wide
 
 ---
 
+## Manual commands versus helper scripts
+
+For bootstrap and credential tasks, this README intentionally shows **both**:
+
+```text
+Option A — Manual commands
+  Understand and execute every Kubernetes/Jenkins step yourself.
+
+Option B — Repository helper script
+  Perform the same operation faster and repeatably.
+```
+
+The helper scripts are not required. They remain in the repository as an
+automation option after you understand or validate the manual procedure.
+
+---
+
 # 6. Install Jenkins Kubernetes plugin
 
 In Jenkins:
@@ -220,6 +237,17 @@ Builds will then run only on proper agents.
 
 # 7. Create namespace and Jenkins controller RBAC
 
+You have **two supported options** for this step:
+
+```text
+Option A -> run the Kubernetes commands/manifests manually
+Option B -> use the repository helper script
+```
+
+Both options create the same namespace-scoped Jenkins controller permissions.
+
+## Option A — Manual
+
 Run from PowerShell in this repository:
 
 ```powershell
@@ -235,24 +263,74 @@ Role:           jenkins-agent-manager
 RoleBinding:    jenkins-agent-manager
 ```
 
-This is a namespace-scoped `Role`, not a `ClusterRole`.
+This is intentionally a namespace-scoped `Role`, **not** a `ClusterRole`.
 
-Verify:
+Verify manually:
 
 ```powershell
-.\scripts\verify-jenkins-rbac.ps1
+kubectl auth can-i create pods `
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+  -n jenkins-agents
+
+kubectl auth can-i create pods `
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+  -n default
 ```
 
-Expected important results:
+Expected:
 
 ```text
 create pods namespace=jenkins-agents -> yes
 create pods namespace=default        -> no
 ```
 
-The RBAC permissions follow the resources used by the official Jenkins
-Kubernetes plugin example: Pods, Pod exec/logs, events, and secret reads in
-the agent namespace.
+You can also verify the other permissions used by the Jenkins Kubernetes
+plugin:
+
+```powershell
+kubectl auth can-i get pods `
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+  -n jenkins-agents
+
+kubectl auth can-i create pods/exec `
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+  -n jenkins-agents
+
+kubectl auth can-i get pods/log `
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+  -n jenkins-agents
+```
+
+Expected:
+
+```text
+yes
+yes
+yes
+```
+
+## Option B — Repository helper
+
+The repository includes:
+
+```powershell
+.\scripts\verify-jenkins-rbac.ps1
+```
+
+This performs the same important permission checks automatically.
+
+If you use the combined bootstrap helper in the next section:
+
+```powershell
+.\scripts\bootstrap-jenkins-k8s-access.ps1
+```
+
+it also applies `namespace-rbac.yaml` before creating the Jenkins kubeconfig,
+so you do not need to apply the manifest separately.
+
+The RBAC permissions are limited to the resources required for Jenkins agent
+Pod lifecycle operations in the `jenkins-agents` namespace: Pods, Pod
+exec/logs, events, and Secret reads.
 
 ---
 
@@ -264,7 +342,139 @@ Jenkins is outside Kubernetes, so it needs a credential to call:
 https://192.168.100.210:6443
 ```
 
-For the private lab, run:
+Again, you have two supported options.
+
+## Option A — Create it manually
+
+### 8.1 Ensure the RBAC exists
+
+If you did not already complete section 7:
+
+```powershell
+kubectl apply -f .\kubernetes\jenkins-agents\namespace-rbac.yaml
+```
+
+### 8.2 Create the lab ServiceAccount token Secret
+
+Apply the repository manifest:
+
+```powershell
+kubectl apply -f .\kubernetes\jenkins-agents\lab-token-secret.yaml
+```
+
+It creates:
+
+```text
+Namespace: jenkins-agents
+Secret:    jenkins-agent-manager-token
+Type:      kubernetes.io/service-account-token
+```
+
+Confirm Kubernetes populated it:
+
+```powershell
+kubectl -n jenkins-agents get secret jenkins-agent-manager-token
+```
+
+### 8.3 Read the token and CA into PowerShell variables
+
+Do not print the token.
+
+```powershell
+$TokenB64 = kubectl -n jenkins-agents get secret jenkins-agent-manager-token `
+  -o jsonpath='{.data.token}'
+
+$CaB64 = kubectl -n jenkins-agents get secret jenkins-agent-manager-token `
+  -o jsonpath='{.data.ca\.crt}'
+
+$Token = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String($TokenB64)
+)
+```
+
+Confirm the variables are populated without displaying their contents:
+
+```powershell
+$Token.Length
+$CaB64.Length
+```
+
+Both should be greater than zero.
+
+### 8.4 Write the Jenkins kubeconfig manually
+
+From the repository root:
+
+```powershell
+$KubernetesServer = "https://192.168.100.210:6443"
+$OutputFile = ".\jenkins-agent-manager.kubeconfig"
+
+$KubeConfig = @"
+apiVersion: v1
+kind: Config
+clusters:
+  - name: k3s-lab
+    cluster:
+      server: $KubernetesServer
+      certificate-authority-data: $CaB64
+contexts:
+  - name: jenkins-agent-manager@k3s-lab
+    context:
+      cluster: k3s-lab
+      namespace: jenkins-agents
+      user: jenkins-agent-manager
+current-context: jenkins-agent-manager@k3s-lab
+users:
+  - name: jenkins-agent-manager
+    user:
+      token: $Token
+"@
+
+[IO.File]::WriteAllText(
+  (Join-Path (Get-Location) "jenkins-agent-manager.kubeconfig"),
+  $KubeConfig,
+  (New-Object Text.UTF8Encoding($false))
+)
+```
+
+The generated kubeconfig is ignored by Git.
+
+### 8.5 Verify the generated kubeconfig
+
+```powershell
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
+  auth can-i create pods -n jenkins-agents
+
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
+  auth can-i create pods -n default
+```
+
+Expected:
+
+```text
+yes
+no
+```
+
+Also verify that the credential can actually reach the cluster:
+
+```powershell
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
+  get pods -n jenkins-agents
+```
+
+After the file has been uploaded to Jenkins Credentials, clear the plaintext
+token variables from the current PowerShell session:
+
+```powershell
+$Token = $null
+$TokenB64 = $null
+$CaB64 = $null
+```
+
+## Option B — Repository helper
+
+For the private lab, the repository can perform the entire process:
 
 ```powershell
 .\scripts\bootstrap-jenkins-k8s-access.ps1
@@ -281,13 +491,19 @@ The script:
 
 ```text
 1. applies the namespace/RBAC
-2. creates a ServiceAccount token Secret for the lab
+2. creates the ServiceAccount token Secret for the lab
 3. obtains the Kubernetes CA and token
-4. writes a kubeconfig without printing the token
+4. writes the kubeconfig without printing the token
 5. verifies namespace-only Pod creation
 ```
 
-The generated kubeconfig is ignored by Git.
+To use another Kubernetes API address or output name:
+
+```powershell
+.\scripts\bootstrap-jenkins-k8s-access.ps1 `
+  -KubernetesServer "https://192.168.100.210:6443" `
+  -OutputFile "jenkins-agent-manager.kubeconfig"
+```
 
 ### Security note
 
@@ -323,7 +539,7 @@ Never put the token directly inside a Jenkinsfile.
 
 # 10. Verify networking in both directions
 
-There are two separate paths.
+There are two separate network paths and both must work.
 
 ## Jenkins -> K3s API
 
@@ -333,14 +549,39 @@ Jenkins VM 192.168.100.220
 K3s API 192.168.100.210
 ```
 
-From the Jenkins VM, a basic network check is:
+### Option A — Manual
+
+From the Jenkins VM:
 
 ```bash
 curl -k https://192.168.100.210:6443/version
 ```
 
-The Jenkins plugin `Test Connection` in the next step is the authenticated
-check.
+That verifies basic TCP/TLS reachability. After section 9, you can also test
+the generated credential from any machine that has the kubeconfig:
+
+```powershell
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
+  get pods -n jenkins-agents
+```
+
+The Jenkins Kubernetes Cloud `Test Connection` in the next section is the
+final authenticated check from Jenkins itself.
+
+### Option B — Helper/GUI checks
+
+The bootstrap script already verifies that its generated kubeconfig can create
+Pods only in `jenkins-agents`:
+
+```powershell
+.\scripts\bootstrap-jenkins-k8s-access.ps1
+```
+
+Then use Jenkins:
+
+```text
+Manage Jenkins -> Clouds -> Kubernetes -> Test Connection
+```
 
 ## Agent Pod -> Jenkins
 
@@ -350,19 +591,55 @@ Kubernetes Pod
 Jenkins VM 192.168.100.220
 ```
 
-Run:
+### Option A — Manual connectivity test
+
+Create a temporary curl Pod:
+
+```powershell
+kubectl -n jenkins-agents run jenkins-connect-test `
+  --image=curlimages/curl:8.16.0 `
+  --restart=Never `
+  --command -- sh -c `
+  "curl -fsS -o /dev/null -w '%{http_code}' 'http://192.168.100.220:8080/jenkins/login'"
+```
+
+Wait for completion:
+
+```powershell
+kubectl -n jenkins-agents wait `
+  --for=jsonpath='{.status.phase}'=Succeeded `
+  pod/jenkins-connect-test `
+  --timeout=90s
+```
+
+Read the HTTP status:
+
+```powershell
+kubectl -n jenkins-agents logs jenkins-connect-test
+```
+
+An HTTP status such as `200`, `301`, `302`, or `403` proves that the Pod can
+reach the Jenkins HTTP endpoint.
+
+Delete the temporary Pod:
+
+```powershell
+kubectl -n jenkins-agents delete pod jenkins-connect-test
+```
+
+### Option B — Repository helper
 
 ```powershell
 .\scripts\verify-jenkins-agent-connectivity.ps1
 ```
 
-It creates a temporary curl Pod, calls:
+The script performs the same temporary Pod test against:
 
 ```text
 http://192.168.100.220:8080/jenkins/login
 ```
 
-and removes the Pod afterward.
+and removes the Pod automatically.
 
 ---
 
@@ -838,7 +1115,67 @@ imagePullSecrets:
   - name: ocir-pull-secret
 ```
 
-Create it in the target namespace:
+You can create this Secret manually or with the repository helper.
+
+## Option A — Manual
+
+First ensure the target namespace exists. For the sample:
+
+```powershell
+kubectl get namespace demo
+```
+
+If it does not exist:
+
+```powershell
+kubectl create namespace demo
+```
+
+Read the OCIR username and auth token into PowerShell variables instead of
+placing the token literally in your command history:
+
+```powershell
+$OcirUser = Read-Host "OCIR username (<tenancy-namespace>/[domain/]<username>)"
+$SecureOcirToken = Read-Host "OCI auth token" -AsSecureString
+$Ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureOcirToken)
+$OcirToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
+```
+
+Create/update the pull Secret:
+
+```powershell
+kubectl create secret docker-registry ocir-pull-secret `
+  --namespace demo `
+  --docker-server=jed.ocir.io `
+  --docker-username="$OcirUser" `
+  --docker-password="$OcirToken" `
+  --dry-run=client `
+  -o yaml | kubectl apply -f -
+```
+
+Clear the local token variables:
+
+```powershell
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Ptr)
+$OcirToken = $null
+$SecureOcirToken = $null
+```
+
+Verify only the Secret metadata/type; do not print its decoded contents:
+
+```powershell
+kubectl -n demo get secret ocir-pull-secret
+```
+
+Expected type:
+
+```text
+kubernetes.io/dockerconfigjson
+```
+
+Repeat the same command for each real namespace by changing `--namespace`.
+
+## Option B — Repository helper
 
 ```powershell
 .\scripts\create-ocir-pull-secret.ps1
@@ -855,7 +1192,7 @@ Secret:    ocir-pull-secret
 The script securely prompts for the OCI username and auth token and does not
 write the token to a repository file.
 
-For multiple real namespaces, run it once per namespace, for example:
+For multiple real namespaces:
 
 ```powershell
 .\scripts\create-ocir-pull-secret.ps1 -Namespace dev
@@ -1126,6 +1463,26 @@ Healthy
 
 ---
 
+# Manual-or-script operating rule
+
+For the setup tasks that have helper scripts, the repository now documents two
+equivalent workflows:
+
+```text
+Manual path
+  -> run kubectl/PowerShell commands yourself
+  -> useful for learning, debugging and auditing each step
+
+Script path
+  -> run the repository helper
+  -> useful for repeatability after the manual process is understood
+```
+
+The scripts have **not** been removed. The README simply no longer requires
+them as the only way to perform the setup.
+
+---
+
 # 34. Troubleshooting: Jenkins cannot connect to K3s
 
 From Jenkins VM:
@@ -1134,7 +1491,21 @@ From Jenkins VM:
 curl -k https://192.168.100.210:6443/version
 ```
 
-From Windows:
+From Windows, verify manually:
+
+```powershell
+kubectl auth can-i create pods `
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+  -n jenkins-agents
+```
+
+Expected:
+
+```text
+yes
+```
+
+Or use the helper:
 
 ```powershell
 .\scripts\verify-jenkins-rbac.ps1
@@ -1160,7 +1531,10 @@ kubectl -n jenkins-agents describe pod <agent-pod>
 kubectl -n jenkins-agents logs <agent-pod> -c jnlp
 ```
 
-Run:
+For the full manual Pod-to-Jenkins connectivity test, use **section 10,
+Option A**.
+
+Or run the helper:
 
 ```powershell
 .\scripts\verify-jenkins-agent-connectivity.ps1
@@ -1224,7 +1598,14 @@ kubectl -n demo get secret ocir-pull-secret
 kubectl -n demo describe pod <sample-api-pod>
 ```
 
-Recreate safely if required:
+Recreate it either:
+
+```text
+manually -> section 24, Option A
+script   -> section 24, Option B
+```
+
+Helper command:
 
 ```powershell
 .\scripts\create-ocir-pull-secret.ps1
