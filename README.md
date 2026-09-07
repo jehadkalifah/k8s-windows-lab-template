@@ -268,13 +268,9 @@ This is intentionally a namespace-scoped `Role`, **not** a `ClusterRole`.
 Verify manually:
 
 ```powershell
-kubectl auth can-i create pods \
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
-  -n jenkins-agents
+kubectl auth can-i create pods --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager -n jenkins-agents
 
-kubectl auth can-i create pods \
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
-  -n default
+kubectl auth can-i create pods --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager -n default
 ```
 
 Expected:
@@ -288,17 +284,11 @@ You can also verify the other permissions used by the Jenkins Kubernetes
 plugin:
 
 ```powershell
-kubectl auth can-i get pods \
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
-  -n jenkins-agents
+kubectl auth can-i get pods --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager -n jenkins-agents
 
-kubectl auth can-i create pods/exec \
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
-  -n jenkins-agents
+kubectl auth can-i create pods/exec --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager -n jenkins-agents
 
-kubectl auth can-i get pods/log \
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
-  -n jenkins-agents
+kubectl auth can-i get pods/log --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager -n jenkins-agents
 ```
 
 Expected:
@@ -381,11 +371,9 @@ kubectl -n jenkins-agents get secret jenkins-agent-manager-token
 Do not print the token.
 
 ```powershell
-$TokenB64 = kubectl -n jenkins-agents get secret jenkins-agent-manager-token `
-  -o jsonpath='{.data.token}'
+$TokenB64 = kubectl -n jenkins-agents get secret jenkins-agent-manager-token -o jsonpath='{.data.token}'
 
-$CaB64 = kubectl -n jenkins-agents get secret jenkins-agent-manager-token `
-  -o jsonpath='{.data.ca\.crt}'
+$CaB64 = kubectl -n jenkins-agents get secret jenkins-agent-manager-token -o jsonpath='{.data.ca\.crt}'
 
 $Token = [Text.Encoding]::UTF8.GetString(
   [Convert]::FromBase64String($TokenB64)
@@ -442,11 +430,9 @@ The generated kubeconfig is ignored by Git.
 ### 8.5 Verify the generated kubeconfig
 
 ```powershell
-kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
-  auth can-i create pods -n jenkins-agents
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig auth can-i create pods -n jenkins-agents
 
-kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
-  auth can-i create pods -n default
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig auth can-i create pods -n default
 ```
 
 Expected:
@@ -459,8 +445,7 @@ no
 Also verify that the credential can actually reach the cluster:
 
 ```powershell
-kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
-  get pods -n jenkins-agents
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig get pods -n jenkins-agents
 ```
 
 After the file has been uploaded to Jenkins Credentials, clear the plaintext
@@ -500,9 +485,7 @@ The script:
 To use another Kubernetes API address or output name:
 
 ```powershell
-.\scripts\bootstrap-jenkins-k8s-access.ps1 `
-  -KubernetesServer "https://192.168.100.210:6443" `
-  -OutputFile "jenkins-agent-manager.kubeconfig"
+.\scripts\bootstrap-jenkins-k8s-access.ps1 -KubernetesServer "https://192.168.100.210:6443" -OutputFile "jenkins-agent-manager.kubeconfig"
 ```
 
 ### Security note
@@ -561,8 +544,7 @@ That verifies basic TCP/TLS reachability. After section 9, you can also test
 the generated credential from any machine that has the kubeconfig:
 
 ```powershell
-kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig `
-  get pods -n jenkins-agents
+kubectl --kubeconfig=.\jenkins-agent-manager.kubeconfig get pods -n jenkins-agents
 ```
 
 The Jenkins Kubernetes Cloud `Test Connection` in the next section is the
@@ -596,20 +578,13 @@ Jenkins VM 192.168.100.220
 Create a temporary curl Pod:
 
 ```powershell
-kubectl -n jenkins-agents run jenkins-connect-test `
-  --image=curlimages/curl:8.16.0 `
-  --restart=Never `
-  --command -- sh -c `
-  "curl -fsS -o /dev/null -w '%{http_code}' 'http://192.168.100.220:8080/jenkins/login'"
+kubectl -n jenkins-agents run jenkins-connect-test --image=curlimages/curl:8.16.0 --restart=Never --command -- sh -c "curl -fsS -o /dev/null -w '%{http_code}' 'http://192.168.100.220:8080/jenkins/login'"
 ```
 
 Wait for completion:
 
 ```powershell
-kubectl -n jenkins-agents wait `
-  --for=jsonpath='{.status.phase}'=Succeeded `
-  pod/jenkins-connect-test `
-  --timeout=90s
+kubectl -n jenkins-agents wait --for=jsonpath='{.status.phase}'=Succeeded pod/jenkins-connect-test --timeout=90s
 ```
 
 Read the HTTP status:
@@ -1144,13 +1119,7 @@ $OcirToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
 Create/update the pull Secret:
 
 ```powershell
-kubectl create secret docker-registry ocir-pull-secret `
-  --namespace demo `
-  --docker-server=jed.ocir.io `
-  --docker-username="$OcirUser" `
-  --docker-password="$OcirToken" `
-  --dry-run=client `
-  -o yaml | kubectl apply -f -
+kubectl create secret docker-registry ocir-pull-secret --namespace demo --docker-server=jed.ocir.io --docker-username="$OcirUser" --docker-password="$OcirToken" --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Clear the local token variables:
@@ -1418,9 +1387,7 @@ through `APP_MESSAGE`.
 Test:
 
 ```powershell
-kubectl -n demo patch configmap sample-api-config `
-  --type merge `
-  -p '{"data":{"APP_MESSAGE":"version-2"}}'
+kubectl -n demo patch configmap sample-api-config --type merge -p '{"data":{"APP_MESSAGE":"version-2"}}'
 ```
 
 Watch:
@@ -1494,9 +1461,7 @@ curl -k https://192.168.100.210:6443/version
 From Windows, verify manually:
 
 ```powershell
-kubectl auth can-i create pods `
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
-  -n jenkins-agents
+kubectl auth can-i create pods --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager -n jenkins-agents
 ```
 
 Expected:
