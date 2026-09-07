@@ -268,12 +268,12 @@ This is intentionally a namespace-scoped `Role`, **not** a `ClusterRole`.
 Verify manually:
 
 ```powershell
-kubectl auth can-i create pods `
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+kubectl auth can-i create pods \
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
   -n jenkins-agents
 
-kubectl auth can-i create pods `
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+kubectl auth can-i create pods \
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
   -n default
 ```
 
@@ -288,16 +288,16 @@ You can also verify the other permissions used by the Jenkins Kubernetes
 plugin:
 
 ```powershell
-kubectl auth can-i get pods `
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+kubectl auth can-i get pods \
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
   -n jenkins-agents
 
-kubectl auth can-i create pods/exec `
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+kubectl auth can-i create pods/exec \
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
   -n jenkins-agents
 
-kubectl auth can-i get pods/log `
-  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager `
+kubectl auth can-i get pods/log \
+  --as=system:serviceaccount:jenkins-agents:jenkins-agent-manager \
   -n jenkins-agents
 ```
 
