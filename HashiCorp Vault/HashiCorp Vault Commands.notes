@@ -108,7 +108,20 @@ vault secrets enable -path=secret kv-v2
 vault secrets list
 
 
-
+# Secret engine KV
+vault secrets enable -path=secret kv-v2
+vault secrets enable -path=secret -version=2 kv
+vault secrets list
+vault secrets list --detailed
+vault kv put secret/demo username="demo" password="demo"
+vault kv list secret
+vault kv get secret/demo
+vault kv -version=1 get secret/demo
+vault kv delete -version=1 secret/demo
+vault kv undelete -version=1 secret/demo
+vault kv destroy -version=1 secret/demo
+vault kv patch secret/demo password=admin321 url=https://my-app:8080  
+vault kv rollback -version=1 secret/demo
 
 
 
