@@ -124,11 +124,117 @@ vault kv patch secret/demo password=admin321 url=https://my-app:8080
 vault kv rollback -version=1 secret/demo
 
 
+# Secret engine Database
+vault secrets enable database
+# Username should be a user with the ability to create other users and grant them privileges. The connection URL should be in the format of postgresql://username:password@host:port/database?sslmode=disable
+vault write database/config/postgresql \
+  plugin_name=postgresql-database-plugin \
+  allowed_roles="postgresql-role" \
+  connection_url="postgresql://{{username}}:{{password}}@keycloak-postgres.keycloak.svc.cluster.local:5432/postgres?sslmode=disable" \
+  username="keycloak" \
+  password="67ae8223e4461990b1132b1715ab34b7bc1ca548b73c0b55"
+
+vault list database/config
+vault read database/config/postgresql
+
+# Add a new role to the database secrets engine
+vault write database/config/postgresql allowed_roles=postgresql-role 
+
+# db_name references the name of the database configuration that was created in the previous step. The creation_statements parameter is a SQL statement that will be executed to create a new role in the database. The default_ttl and max_ttl parameters specify the time-to-live for the generated credentials.
+vault write database/roles/postgresql-role \
+  db_name=postgresql \
+  creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT CONNECT ON DATABASE postgres TO \"{{name}}\";" \
+  default_ttl="1h" \
+  max_ttl="24h"
+
+vault read database/roles/postgresql-role
+vault read database/creds/postgresql-role 
+vault lease revoke <lease_id>
+# Revoke all leases with a specific prefix
+vault lease revoke -prefix database/
+vault lease revoke -prefix database/creds/postgresql-role
+
+# List created users in the database
+psql -U keycloak
+psql -h POSTGRES_HOST -p 5432 -U keycloak -d postgres
+SELECT rolname FROM pg_roles ORDER BY rolname;
+SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolvaliduntil FROM pg_roles ORDER BY rolname;
+\du
+\du+
 
 
+# Vault Policies
+# - Most commonly policy used when configuring AUTH method roles
+vault write auth/approle/role/demo token_policies="demo" token_ttl=1h token_max_ttl=4h secret_id_ttl=24h secret_id_num_uses=10
+vault read auth/approle/role/demo/role-id
+vault token lookup <VAULT_TOKEN>
+# - Can be assigned directly when creating a new token
+vault token create -policy=demo -orphan -ttl=1h -renewable=true
+# - It can be assigned by creating an entity and associating the user's login with the entity
+# - Will be inherited when a user is a member of one or more Vault groups
 
+# Customizing the Path
+# - secret/apps/application1/*-allows any path after application1
+# - kv/platform/db-* -would match kv/platform/db-2but not kv/platform/db
+# - kv/data/apps/+/webapp–matches the following:
+#   - kv/data/apps/dev/webapp
+#   - kv/data/apps/qa/webapp
+#   - kv/data/apps/prod/webapp
 
+# Two key parts of a policy: path + capabilities
+path "<path>" {
+   capabilities = ["<list of permissions>"]
+}
 
+# Capabilities define what we can do on the defined path
+# Specified as a list of strings within the policy (even if there's just one)
+# Capability      HTTP Verb
+# create          POST/PUT
+# read            GET
+# update          POST/PUT
+# delete          DELETE
+# list            LIST
 
+# Capability           Description
+# sudo                 Allows access to paths that are root-protected
+# deny                 Disallows access regardless of any other defined capabilities
 
+# - create= if the key does not yet exist
+# - update= if the key exists and you want to replace/update it
+
+# Vault policy commands
+vault policy write <policy_name> <policy_file> # write for creating/updating a policy
+vault policy read <policy_name>
+vault policy delete <policy_name>
+vault policy list
+vault policy fmt <policy_file>
+
+# /tmp/policy.hcl
+path "/secrets/data/app" {
+  capabilities = ["read", "list"]
+} 
+
+path "/secrets/metadata/*" {
+  capabilities = ["read", "list"]
+} 
+
+path "kv/apps/webapp/*" {
+   capabilities = ["read"]
+} 
+
+path "kv/apps/webapp/super_secret" {
+   capabilities = ["deny"]
+} 
+
+vault policy write user-policy /tmp/kv-policy.hcl
+vault token create -policy=user-policy -orphan -ttl=1h -renewable=true
+
+vault login <VAULT_TOKEN>
+export VAULT_TOKEN=<VAULT_TOKEN>
+vault login
+vault kv list secrets
+vault kv read secrets/app
+vault kv get secrets/app
+vault kv put secrets/app value=secret
+vault kv put secrets/new-app value=secret
 
