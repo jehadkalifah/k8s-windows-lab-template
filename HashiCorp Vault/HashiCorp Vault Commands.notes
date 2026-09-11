@@ -238,3 +238,9 @@ vault kv get secrets/app
 vault kv put secrets/app value=secret
 vault kv put secrets/new-app value=secret
 
+
+# Vault Configuration
+# - Manually join standby nodes to the cluster using cli 
+vault operator raft join http://<leader_node_ip>:8200
+# List all the nodes in the raft cluster
+vault operator raft list-peers
