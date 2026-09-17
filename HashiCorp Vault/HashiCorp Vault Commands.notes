@@ -44,7 +44,7 @@ vault policy read admin
 
 vault auth enable userpass
 vault policy list
-vault write auth/userpass/users/admin password=admin policies=admin
+vault write auth/userpass/users/admin password=<password> policies=admin
 vault list auth/userpass/users
 vault read auth/userpass/users/admin
 vault login -method=userpass username=admin 
@@ -113,14 +113,14 @@ vault secrets enable -path=secret kv-v2
 vault secrets enable -path=secret -version=2 kv
 vault secrets list
 vault secrets list --detailed
-vault kv put secret/demo username="demo" password="demo"
+vault kv put secret/demo username="demo" password="<password>"
 vault kv list secret
 vault kv get secret/demo
 vault kv -version=1 get secret/demo
 vault kv delete -version=1 secret/demo
 vault kv undelete -version=1 secret/demo
 vault kv destroy -version=1 secret/demo
-vault kv patch secret/demo password=admin321 url=https://my-app:8080  
+vault kv patch secret/demo password=<password> url=https://my-app:8080  
 vault kv rollback -version=1 secret/demo
 
 
@@ -280,5 +280,52 @@ license_path = "/opt/vault/vault.hcl"
 disable_mlock=true
 
 
+# Auth Method
+vault auth enable userpass -description="Userpass authentication"
+vault auth enable approle -description="AppRole authentication"
+vault auth enable -path=vault-course approle
+vault auth disable userpass
+vault auth list
+vault auth tune -default-lease-ttl=1h -max-lease-ttl=24h userpass
+vault write auth/userpass/users/admin password=admin policies=<password>
+vault write auth/approle/role/demo token_policies="demo" token_ttl="1h" token_max_ttl="4h" secret_id_ttl="24h" secret_id_num_uses=10
+vault read auth/approle/role/demo/role-id
+
+vault login -method=userpass username=admin password=<password>
 
 
+# Vault Authentication
+vault login hvs.fhNBot4hRBfDWJ2jBdTwimaG
+vault login -method=userpass username=bryan
+
+# Parsing the JSON Response to Obtain the Vault Token (ex. Jenkins Pipeline)
+export VAULT_ADDR="https://vault.example.com:8200"
+export VAULT_FORMAT=json
+OUTPUT=$(vault write auth/approle/login role_id="12345657" secret_id="1nv84nd3821s"
+VAULT_TOKEN=$(echo $OUTPUT | jq'.auth.client_token' -j)
+vault login $VAULT_TOKEN
+
+
+# Auth Method approle
+vault auth list
+vault auth enable approle
+vault policy list
+vault write auth/approle/role/admin policies="admin" token_ttl=20m
+vault list auth/approle/role
+vault read auth/approle/role/admin
+vault read auth/approle/role/admin/role-id
+# we need to do is we need to generate a secret ID
+vault write -f auth/approle/role/admin/secret-id
+# To log in to Vault using the AppRole authentication method
+# vault write auth/approle/login role_id="<ROLE_ID>" secret_id="<SECRET_ID>"
+vault write auth/approle/login role_id=04c37d81-25d6-0551-8d39-0b10ec870c8d \
+            secret_id=4a1fac73-0a99-46ad-d6dd-bc0a4bb70f53
+
+# Auth Method userpass
+vault auth enable userpass -description="Userpass authentication"
+vault auth list
+vault auth tune -default-lease-ttl=1h -max-lease-ttl=24h userpass
+vault write auth/userpass/users/admin password=<password> policies=admin
+vault list auth/userpass/users
+vault read auth/userpass/users/admin
+vault login -method=userpass username=admin password=<password>
