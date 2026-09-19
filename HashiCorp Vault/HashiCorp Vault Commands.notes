@@ -307,13 +307,6 @@ path "secret/metadata/{{identity.entity.id}}/*" {
 # | identity.groups.names.<<group name>>.metadata.<<metadata key>>| Metadata associated with the group for the given key       |
 # +--------------------------------------------------------------+-------------------------------------------------------------+
 
-#
-# 
-# 
-# 
-# 
-# 
-
 # Capabilities define what we can do on the defined path
 # Specified as a list of strings within the policy (even if there's just one)
 # Capability      HTTP Verb
@@ -393,6 +386,146 @@ path "aws/creds/web-*" {
 # - sys/step-down (force the leader to give up active status)
 
 
+# Create a new token with "web-app" policy attached
+vault token create -policy="web-app"
+
+# Configure License
+path "sys/license" {
+  capabilities = ["read", "list", "create", "update", "delete"]
+}
+# Initialize Vault
+path "sys/init" {
+  capabilities = ["read", "update", "create"]
+}
+# Configure UI in Vault
+path "sys/config/ui" {
+  capabilities = ["read", "list", "update", "delete", "sudo"]
+}
+# Allow rekey of unseal keys for Vault
+path "sys/rekey/*" {
+  capabilities = ["read", "list", "update", "delete"]
+}
+# Allows rotation of master key
+path "sys/rotate" {
+  capabilities = ["update", "sudo"]
+}
+# Allows Vault seal
+path "sys/seal" {
+  capabilities = ["sudo"]
+}
+
+
+
+
+# Vault Tokens
+vault token lookup hvs.d1BCdhug8buTgAnSZhtPm8Hp
+
+# Controlling Token Lifecycle
+# +--------------------------------------------------------------------------+--------------------------------+
+# | Challenge                                                                | Solution                       |
+# +--------------------------------------------------------------------------+--------------------------------+
+# | I have a long-running app which cannot handle the regeneration of a      | Periodic Service Token         |
+# | token or secret                                                          |                                |
+# +--------------------------------------------------------------------------+--------------------------------+
+# | I need a token that gets revoked automatically after one use             | Service Token with Use Limit   |
+# +--------------------------------------------------------------------------+--------------------------------+
+# | My app can't use a token where its expiration is influenced by its       | Orphan Service Token           |
+# | parent                                                                   |                                |
+# +--------------------------------------------------------------------------+--------------------------------+
+
+# Periodic Token
+# Periodic tokens are a type of token in HashiCorp Vault that have a defined time-to-live (TTL) and can be renewed indefinitely until they are revoked. 
+# They are useful for long-running applications that need to maintain access to Vault without having to handle the regeneration of tokens or secrets. Periodic tokens can be created with a specific TTL and can be renewed before they expire, allowing for continuous access to Vault resources.
+# Rootor sudousers have the ability to generate periodic tokens
+path "auth/token/create" {
+  capabilities = [ "create", "read", "update", "delete", "sudo" ]
+}
+# Periodic tokens have a TTL, but no max TTL
+# Periodic tokens may live for an infinite amount of time, so long as they are renewed within their TTL
+# So as long as you go and renew this particular token before this, 23 hours, 59 minutes and 28 seconds
+# expires, you can renew this token as many times as you want Hundreds, thousands, whatever you can
+# This token can live for years, as long as you renew it within that 24 hour time frame
+vault token create -policy=training -period=24h
+
+# Service Token with Use Limits
+# When you want to limit the number of requests coming to Vault from a particular token:
+# - Limit the token's number of uses in addition to TTL and Max TTL
+# - Use limit tokens expire at the end of their last use, regardless of their remaining TTLs (be used three times, after the third time, it's going to be revoked immediately)
+# - Use limit tokens expire at the end of their TTLs, regardless of remaining uses
+vault token create -policy="training" -use-limit=2
+vault token lookup hvs.516LO9Ssk1CQzvKo8ny1G0eu
+
+# Orphan Token
+# When the token hierarchy behavior is not desirable:
+# - Only root tokensor sudousers have the ability to generate orphan tokens
+path "auth/token/create-orphan" {
+  capabilities = [ "create", "read", "update", "delete", "sudo" ]
+}
+# - Orphan tokens are not children of their parent token; therefore, they do not expire when their parent token does
+# - Orphan tokens still expire when their own Max TTL is reached
+vault token create -policy="training" -orphan
+vault token lookup hvs.3rPJCQbGWD9O6uybtTuojjFs
+
+# CIDR-Bound Token
+# You want a token that can only be used by a specific host or within a certain network block
+# Configured using a Token Role or Different Auth Methods
+# it's just a regular service token with additional CIDR-bound configuration
+
+# a couple of different ways that we can actually set the token type when we create a token
+# To configure the AppRoleauth method to generate batch tokens
+vault auth enable approle
+vault write auth/approle/role/training policies="training" \
+            token_type="batch" \
+            token_ttl="60s"
+# To configure the AppRoleauth method to generate periodic tokens
+vault write auth/approle/role/jenkins policies="jenkins" \
+            period="72h"
+
+# Use the vault token command:
+vault token create -display_name=jenkins \
+                   -policy=training,certs \
+                   -ttl=24h \
+                   -explicit-max-ttl=72h
+vault token lookup hvs.516LO9Ssk1CQzvKo8ny1G0eu
+vault token lookup -accessor 516LO9Ssk1CQzvKo8ny1G0eu
+vault token renew hvs.516LO9Ssk1CQzvKo8ny1G0eu
+vault token renew -accessor 516LO9Ssk1CQzvKo8ny1G0eu
+vault token revoke hvs.516LO9Ssk1CQzvKo8ny1G0eu
+vault token revoke -accessor 516LO9Ssk1CQzvKo8ny1G0eu 
+vault token capabilities hvs.dhtIk8VsE3Mj61PuGP3ZfFrg sys/policy/default
+
+
+# Root Tokens (Where do Root TokensCome From?)
+# - The initial root token comes from Vault initialization
+vault operator init -key-shares=5 -key-threshold=3
+# - Create a root token from an existing root token
+vault login hvs.lmmOCfNH1HZvvBwxnLErWrhK
+vault token create
+# - Create a root token using unseal/recovery keys
+#   Helpful if you need to generate a root token in an emergency or a root token is needed for a particular task
+#   To perform the task, use the vault operator generate-root command
+# +------------------+---------------------------------------------------------------+
+# | Options          | Description                                                   |
+# +------------------+---------------------------------------------------------------+
+# | -generate-otp    | Generate and print a high-entropy one-time password (OTP)     |
+# +------------------+---------------------------------------------------------------+
+# | -init            | Start a root token generation                                 |
+# +------------------+---------------------------------------------------------------+
+# | -decode=<string> | Decode and output the generated root token                    |
+# +------------------+---------------------------------------------------------------+
+# | -otp=<string>    | OTP code to use with -decode or -init                         |
+# +------------------+---------------------------------------------------------------+
+# | -status          | Print the status of the current attempt                       |
+# +------------------+---------------------------------------------------------------+
+# | -cancel          | Cancel the current attempt                                    |
+# +------------------+---------------------------------------------------------------+
+vault login <root_token>
+vault operator generate-root -init # One-Time-Password (OTP) gets generated "OTP: hM9q24nNiZfnYIiNvhnGo4UFc3"
+vault operator generate-root # Key holders each provide their key until you meet the threshold (it's going to ask them for their unseal or their recovery key)
+vault operator generate-root # Encrypted Root Token "Encoded Token: G2NeKUZgXTsYYxILAC9ZFBguPw9ZXBovFAs" is generated
+vault operator generate-root \
+      -otp="hM9q24nNiZfnYIiNvhnGo4UFc3" \
+      -decode="G2NeKUZgXTsYYxILAC9ZFBguPw9ZXBovFAs"
 
 
 
