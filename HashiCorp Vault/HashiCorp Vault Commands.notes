@@ -528,9 +528,41 @@ vault operator generate-root \
       -decode="G2NeKUZgXTsYYxILAC9ZFBguPw9ZXBovFAs"
 
 
+# Secrets Engines
+# Use the vault secretscommand
+vault secrets enable aws
+vault secrets enable -description="Static Secrets" -path="cloud-kv" kv-v2
+vault secrets disable aws
+vault secrets list
+vault secrets list -detailed
+vault secrets move -path=aws aws
+vault secrets tune -default-lease-ttl=72h pki/
 
+# Configuring a Secrets Engine
+# There are generally two steps when configuring a secrets engine that will generate dynamic credentials:
+# 1. Configure Vault with access to the platform
+# 2. Configure Roles based on permissions needed
 
+# Credentials can be provided using IAM credentials, an EC2
+# instance role, or setting environment variables  
+# Provide credentials to a secrets engine that gives Vault permission to create, list, and delete credentials on the platform:
+vault write aws/config/root \
+      access_key=AKIAIOSFODNN7EXAMPLE \
+      secret_key= wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\
+      region=us-east-1
 
+# Provide credentials to a secrets engine that gives Vault permission to create, list, and delete credentials on the platform
+vault write database/config/prod-database \
+      plugin_name=mysql-aurora-database-plugin \
+      connection_url="{{username}}:{{password}}@tcp(prod.cluster.us-east-1.rds.amazonaws.com:3306)/" \
+      allowed_roles="app-integration, app-lambda" \
+      username="vault-admin" \
+      password="vneJ4908fkd3084Bk39fmslslf#e&349"
 
+# Vault does not know what permissions, groups, and policies you want to attach to generated credentials. Each rolemaps to a set of permissions on the targeted platform.
+# Note: if you use the IAM user credential in AWS and you generate credentials against AWS, it actually creates a user an IAM user in there as same as database
+# data-consultant role we created
+vault read aws/creds/data-consultant
 
-
+# oracle-reporting role we created
+vault read database/creds/oracle-reporting
