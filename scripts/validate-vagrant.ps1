@@ -12,16 +12,6 @@ try {
         return
     }
 
-    $pluginList = & $vagrant.Source plugin list
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to query installed Vagrant plugins."
-    }
-    if (-not ($pluginList | Select-String -SimpleMatch "vagrant-disksize")) {
-        Write-Host "WARNING: vagrant-disksize is not installed; skipping 'vagrant validate' because the Vagrantfile now references vm.disksize.size." -ForegroundColor Yellow
-        Write-Host "Install it with: vagrant plugin install vagrant-disksize" -ForegroundColor Yellow
-        return
-    }
-
     $oldBridge = $env:K8S_BRIDGE_ADAPTER
     Remove-Item Env:K8S_BRIDGE_ADAPTER -ErrorAction SilentlyContinue
 
