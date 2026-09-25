@@ -50,8 +50,8 @@ Vagrant.configure("2") do |config|
       Install it once with:
         vagrant plugin install vagrant-disksize
 
-      Then retry:
-        .\\scripts\\up.ps1
+      Then retry the command you were running, for example:
+        vagrant #{command}
 
     MSG
   end
