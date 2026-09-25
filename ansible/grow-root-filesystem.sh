@@ -5,6 +5,7 @@ grow_root_filesystem() {
   local root_source root_fs partition_device partition_number parent_disk_name parent_disk_device
   local growpart_output=""
   local growpart_status=0
+  local -a required_packages=()
 
   root_source="$(findmnt -n -o SOURCE / || true)"
   root_fs="$(findmnt -n -o FSTYPE / || true)"
@@ -25,13 +26,14 @@ grow_root_filesystem() {
   parent_disk_device="/dev/${parent_disk_name}"
 
   if ! command -v growpart >/dev/null 2>&1; then
-    apt-get update
-    apt-get install -y cloud-guest-utils
+    required_packages+=(cloud-guest-utils)
   fi
-
   if [ "${root_fs}" = "xfs" ] && ! command -v xfs_growfs >/dev/null 2>&1; then
+    required_packages+=(xfsprogs)
+  fi
+  if [ "${#required_packages[@]}" -gt 0 ]; then
     apt-get update
-    apt-get install -y xfsprogs
+    apt-get install -y "${required_packages[@]}"
   fi
 
   set +e
