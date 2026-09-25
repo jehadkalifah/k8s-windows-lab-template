@@ -4132,7 +4132,8 @@ Install the required plugin once:
 vagrant plugin install vagrant-disksize
 ```
 
-`scripts\lab-config.ps1` can override the defaults with:
+Copy these optional overrides from `scripts\lab-config.ps1.example` into your
+local `scripts\lab-config.ps1` if you want different sizes:
 
 ```powershell
 $env:K8S_MASTER_DISK_MB = "256000"
