@@ -185,8 +185,9 @@ test_resolve_direct_partition() {
 
   PATH="${bin_dir}:/usr/bin:/bin"
   SYS_CLASS_BLOCK_ROOT="${sys_root}"
+  export PATH SYS_CLASS_BLOCK_ROOT
   source "${HELPER}"
-  result="$(PATH="${bin_dir}:/usr/bin:/bin" SYS_CLASS_BLOCK_ROOT="${sys_root}" resolve_backing_partition_device /dev/sda1)"
+  result="$(resolve_backing_partition_device /dev/sda1)"
   [ "${result}" = "/dev/sda1" ] || fail "expected /dev/sda1, got ${result}"
 
   rm -rf "${temp_dir}"
@@ -204,8 +205,9 @@ test_resolve_lvm_partition() {
 
   PATH="${bin_dir}:/usr/bin:/bin"
   SYS_CLASS_BLOCK_ROOT="${sys_root}"
+  export PATH SYS_CLASS_BLOCK_ROOT
   source "${HELPER}"
-  result="$(PATH="${bin_dir}:/usr/bin:/bin" SYS_CLASS_BLOCK_ROOT="${sys_root}" resolve_backing_partition_device /dev/mapper/vg-root)"
+  result="$(resolve_backing_partition_device /dev/mapper/vg-root)"
   [ "${result}" = "/dev/sda3" ] || fail "expected /dev/sda3, got ${result}"
 
   rm -rf "${temp_dir}"

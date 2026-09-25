@@ -24,7 +24,7 @@ resolve_backing_partition_device() {
 }
 
 grow_root_filesystem() {
-  local root_source root_fs partition_device partition_device_name partition_number parent_disk_name parent_disk_device
+  local root_source root_fs partition_device partition_device_name partition_sysfs_path partition_number parent_disk_name parent_disk_device
   local growpart_output=""
   local growpart_status=0
   local -a required_packages=()
@@ -41,7 +41,8 @@ grow_root_filesystem() {
     return 0
   fi
   partition_device_name="$(basename "${partition_device}")"
-  parent_disk_name="$(basename "$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/..")")"
+  partition_sysfs_path="$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}")"
+  parent_disk_name="$(basename "$(dirname "${partition_sysfs_path}")")"
   partition_number="$(cat "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/partition" 2>/dev/null || true)"
 
   if [ -z "${partition_device}" ] || [ -z "${parent_disk_name}" ] || [ -z "${partition_number}" ]; then
