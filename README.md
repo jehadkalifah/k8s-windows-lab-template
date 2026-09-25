@@ -14,9 +14,6 @@ The lab is therefore organized into two stages:
 Stage 1 — Base Kubernetes cluster
 └── VirtualBox + Vagrant
     └── 3 Ubuntu VMs
-        ├── configurable CPU / RAM
-        ├── configurable boot/root disk
-        ├── optional additional VDI data disk
         └── K3s
             ├── 1 control-plane node
             ├── 2 worker nodes
@@ -155,9 +152,6 @@ Stage 1 creates only the reusable Kubernetes foundation:
 ```text
 VirtualBox VMs
 Vagrant lifecycle
-configurable CPU / memory
-configurable boot/root disk
-optional additional VDI data disk
 Ubuntu
 K3s server
 K3s agents
@@ -242,6 +236,7 @@ current PowerShell session:
 
 ```powershell
 cd D:\k8s-windows-lab-template
+cp .\scripts\lab-config.ps1.example .\scripts\lab-config.ps1
 . .\scripts\lab-config.ps1
 ```
 
@@ -261,19 +256,6 @@ $env:K3S_API_LAN_IP
 
 $env:METALLB_POOL_START
 $env:METALLB_POOL_END
-
-# Optional K3s VM storage
-$env:K8S_BOOT_DISK_GB
-$env:K8S_ADDITIONAL_DISK_GB
-
-# Optional per-node storage overrides
-$env:K3S_MASTER_BOOT_DISK_GB
-$env:K3S_WORKER1_BOOT_DISK_GB
-$env:K3S_WORKER2_BOOT_DISK_GB
-
-$env:K3S_MASTER_ADDITIONAL_DISK_GB
-$env:K3S_WORKER1_ADDITIONAL_DISK_GB
-$env:K3S_WORKER2_ADDITIONAL_DISK_GB
 ```
 
 Expected configuration:
@@ -293,21 +275,6 @@ $env:K3S_API_LAN_IP = "192.168.100.210"
 
 $env:METALLB_POOL_START = "192.168.100.240"
 $env:METALLB_POOL_END   = "192.168.100.245"
-
-# Optional K3s VM storage.
-# For an existing snapshot-backed lab, the additional disk is preferred.
-# Uncomment/change only when required.
-# $env:K8S_BOOT_DISK_GB       = "100"
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-
-# Optional per-node overrides:
-# $env:K3S_MASTER_BOOT_DISK_GB  = "100"
-# $env:K3S_WORKER1_BOOT_DISK_GB = "100"
-# $env:K3S_WORKER2_BOOT_DISK_GB = "100"
-#
-# $env:K3S_MASTER_ADDITIONAL_DISK_GB  = "250"
-# $env:K3S_WORKER1_ADDITIONAL_DISK_GB = "250"
-# $env:K3S_WORKER2_ADDITIONAL_DISK_GB = "250"
 ```
 
 The VM interface roles are:
@@ -343,178 +310,13 @@ Verify after cluster creation:
 .\scripts\check-flannel.ps1
 ```
 
-# Stage 1 VM Sizing
-
-Before creating the K3s VMs, configure CPU, memory and storage as required.
-
-The values can be set in the current PowerShell session or added to
-`scripts\lab-config.ps1` when you want them loaded automatically with the rest
-of the lab configuration.
-
-## CPU and memory
-
-Default values:
-
-```text
-k3s-master
-  CPU:    4
-  Memory: 6144 MiB
-
-k3s-worker1
-  CPU:    2
-  Memory: 4096 MiB
-
-k3s-worker2
-  CPU:    2
-  Memory: 4096 MiB
-```
-
-Override with:
-
-```powershell
-$env:K8S_MASTER_CPUS = "4"
-$env:K8S_MASTER_MEM  = "6144"
-
-$env:K8S_WORKER_CPUS = "2"
-$env:K8S_WORKER_MEM  = "4096"
-```
-
-## VM storage
-
-The Vagrantfile supports two independent K3s storage options:
-
-```text
-1. Boot/root disk
-2. Additional data disk
-```
-
-### Boot/root disk
-
-Set one shared primary-disk size for all three K3s VMs:
-
-```powershell
-$env:K8S_BOOT_DISK_GB = "100"
-```
-
-This controls the primary OS disk for all three K3s VMs.
-
-Per-node overrides:
-
-```powershell
-$env:K3S_MASTER_BOOT_DISK_GB  = "100"
-$env:K3S_WORKER1_BOOT_DISK_GB = "100"
-$env:K3S_WORKER2_BOOT_DISK_GB = "100"
-```
-
-A per-node value overrides `K8S_BOOT_DISK_GB` for that node.
-
-**Important:** use boot-disk resizing mainly when creating new VMs. For an
-existing VM that already has VirtualBox snapshots, prefer the additional-disk
-option instead of resizing the snapshot-backed primary disk.
-
-### Additional data disk
-
-Recommended for Longhorn and for existing snapshot-backed lab VMs:
-
-```powershell
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-```
-
-Per-node overrides:
-
-```powershell
-$env:K3S_MASTER_ADDITIONAL_DISK_GB  = "250"
-$env:K3S_WORKER1_ADDITIONAL_DISK_GB = "250"
-$env:K3S_WORKER2_ADDITIONAL_DISK_GB = "250"
-```
-
-A per-node value overrides `K8S_ADDITIONAL_DISK_GB` for that node.
-
-Recommended lab layout:
-
-```text
-k3s-master
-├── boot/root disk
-│   └── Ubuntu + K3s + containerd
-└── additional VDI
-    └── Longhorn/data
-
-k3s-worker1
-├── boot/root disk
-└── additional VDI
-
-k3s-worker2
-├── boot/root disk
-└── additional VDI
-```
-
-The additional disk is created and attached by the repository's
-`scripts\ensure-k3s-additional-disk.ps1` helper using VirtualBox
-`VBoxManage`; it is intentionally **not declared as a Vagrant `vm.disk`** and
-is not formatted automatically. This avoids Vagrant additional-disk
-reconciliation problems after snapshots and avoids accidentally overwriting an
-existing guest disk.
-
-For existing snapshot-backed VMs, prefer an additional disk instead of resizing
-the current boot disk.
-
 # Stage 1 — Base K3s Cluster
 
-For the recommended existing/snapshot-backed lab layout, configure the
-additional data disk before creating or starting the VMs:
+Run:
 
 ```powershell
-cd D:\k8s-windows-lab-template
-. .\scripts\lab-config.ps1
-.\scripts\prereq.ps1
-
-# Recommended example: keep the existing boot disk and attach
-# a dedicated 250 GiB data disk to each K3s VM.
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-
 .\scripts\up.ps1
 ```
-
-For a brand-new lab where both the boot disk and an additional data disk should
-be customized:
-
-```powershell
-cd D:\k8s-windows-lab-template
-. .\scripts\lab-config.ps1
-
-$env:K8S_BOOT_DISK_GB       = "100"
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-
-.\scripts\prereq.ps1
-.\scripts\up.ps1
-```
-
-If different nodes require different capacities, set the per-node override
-variables described in **Stage 1 VM Sizing** before running `up.ps1`.
-
-Stage 1 creates:
-
-```text
-3 Ubuntu VMs
-├── configurable CPU
-├── configurable memory
-├── configurable boot/root disk
-├── optional configurable additional VDI disk
-├── NAT NIC
-├── host-only NIC
-├── bridged LAN NIC
-└── K3s
-    ├── 1 control-plane node
-    ├── 2 worker nodes
-    ├── Flannel
-    ├── CoreDNS
-    ├── local kubeconfig
-    └── remote kubeconfig
-```
-
-The additional data disk is only created/attached at this stage. Formatting,
-mounting and registering it with Longhorn are separate explicit operations
-documented later in this README.
 
 Stage 1 creates only the three-node K3s cluster and kubeconfigs.
 
@@ -4311,6 +4113,39 @@ config.vm.boot_timeout
 If the VM really does not become SSH-ready within 600 seconds, the workflow
 still fails correctly.
 
+## Root disk sizing
+
+The Vagrantfile now also sizes each Ubuntu root disk from environment
+variables:
+
+```ruby
+disk_size_master = (ENV["K8S_MASTER_DISK_MB"] || "256000").to_i
+disk_size_worker = (ENV["K8S_WORKER_DISK_MB"] || "256000").to_i
+jenkins_disk_mb  = (ENV["JENKINS_DISK_MB"] || "256000").to_i
+```
+
+`k3s-master`, `k3s-worker1`, `k3s-worker2`, and `jenkins` therefore default to
+**250GB** root disks with no manual VirtualBox steps.
+
+Install the required plugin once:
+
+```powershell
+vagrant plugin install vagrant-disksize
+```
+
+Copy these optional overrides from `scripts\lab-config.ps1.example` into your
+local `scripts\lab-config.ps1` if you want different sizes:
+
+```powershell
+$env:K8S_MASTER_DISK_MB = "256000"
+$env:K8S_WORKER_DISK_MB = "256000"
+$env:JENKINS_DISK_MB    = "256000"
+```
+
+During provisioning the guest bootstrap scripts automatically run `growpart`
+and then grow the root filesystem (`resize2fs` or `xfs_growfs` as needed), so
+no manual resize steps are required after `.\scripts\up.ps1` or `vagrant up`.
+
 ## Corrected scripts
 
 The following scripts share the corrected cluster-only lifecycle logic:
@@ -5956,561 +5791,3 @@ After Helm installation, the installer verifies the actual Harbor PVCs:
 PVC count >= 5
 all Harbor PVCs use local-path
 ```
-
----
-
-# K3s VM Storage Sizing — Boot Disk and Additional Data Disk
-
-This section is an **append-only storage update**. All previous README content
-remains unchanged.
-
-The K3s lab has two independent storage controls:
-
-```text
-1. Optional primary boot/root disk size — Vagrant-managed
-2. Optional additional VDI data disk — repository/VBoxManage-managed
-```
-
-The Jenkins VM is intentionally unaffected by these K3s storage settings.
-
-## Storage variables
-
-Shared values for all three K3s nodes:
-
-```powershell
-$env:K8S_BOOT_DISK_GB       = "100"
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-```
-
-Per-node overrides:
-
-```text
-K3S_MASTER_BOOT_DISK_GB
-K3S_WORKER1_BOOT_DISK_GB
-K3S_WORKER2_BOOT_DISK_GB
-
-K3S_MASTER_ADDITIONAL_DISK_GB
-K3S_WORKER1_ADDITIONAL_DISK_GB
-K3S_WORKER2_ADDITIONAL_DISK_GB
-```
-
-A per-node value overrides the corresponding shared value.
-
-If a value is not configured, that storage option is left unmanaged.
-
-### Persist storage settings in `lab-config.ps1`
-
-For storage, do not rely on a one-time temporary PowerShell environment
-variable and then forget it.
-
-Copy/update the machine-local configuration:
-
-```powershell
-Copy-Item .\scripts\lab-config.ps1.example .\scripts\lab-config.ps1
-```
-
-and keep the selected storage values there.
-
-The additional data disk is no longer Vagrant-managed. Keeping the desired
-size in `lab-config.ps1` lets `up.ps1` ensure the expected storage layout, but
-removing the variable later does not cause Vagrant disk cleanup to detach or
-delete that additional VDI.
-
-## Option 1 — customize the boot/root disk
-
-For a new lab, for example:
-
-```powershell
-$env:K8S_BOOT_DISK_GB = "100"
-.\scripts\up.ps1
-```
-
-The Vagrantfile uses:
-
-```ruby
-vm.vm.disk :disk,
-  size: "<requested-size>GB",
-  primary: true
-```
-
-Use this option mainly for **new VMs**.
-
-Important:
-
-```text
-- VirtualBox cannot shrink a virtual disk.
-- Never request a value smaller than the current primary disk.
-- Bento boxes commonly use VMDK for their base disk.
-- Vagrant may convert a VMDK to VDI, resize it, and convert it back.
-- Interrupting that conversion can damage the disk.
-- Do not run VBoxManage modifymedium --resize directly against the Bento VMDK.
-- For an existing snapshot-backed lab, prefer the additional-disk option.
-```
-
-Changing virtual disk capacity does not automatically guarantee that every
-guest partition/filesystem has expanded. Verify inside Ubuntu with:
-
-```powershell
-vagrant ssh k3s-master -c "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS"
-vagrant ssh k3s-master -c "df -h"
-```
-
-## Option 2 — add a dedicated data VDI
-
-This is the recommended choice for adding Longhorn capacity to an existing
-training lab.
-
-Example for all three K3s nodes:
-
-```powershell
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-```
-
-Or use different sizes:
-
-```powershell
-$env:K3S_MASTER_ADDITIONAL_DISK_GB  = "150"
-$env:K3S_WORKER1_ADDITIONAL_DISK_GB = "250"
-$env:K3S_WORKER2_ADDITIONAL_DISK_GB = "250"
-```
-
-The repository intentionally does **not** declare the additional disk with
-`vm.vm.disk`.
-
-Instead, `up.ps1` calls the repository helper for each K3s node. The helper
-creates a dedicated VirtualBox SATA controller named `K3s Data SATA`, creates a
-dynamically allocated VDI only when it does not already exist, and attaches it
-to a stable controller/port.
-
-If a later VirtualBox snapshot points that controller slot at a differencing
-image under `Snapshots`, the helper recognizes the existing attachment and
-does not recreate the base VDI.
-
-The logical VDI capacity is the configured value; a dynamically allocated
-VirtualBox image grows on the Windows host as guest blocks are written.
-
-## Apply an additional-disk change to an existing VM
-
-VirtualBox requires the VM to be powered off while a new controller/disk is
-attached. Use the repository helper rather than Vagrant disk reconciliation:
-
-```powershell
-. .\scripts\lab-config.ps1
-
-.\scripts\ensure-k3s-additional-disk.ps1 `
-  -Machine k3s-worker1 `
-  -RestartIfNeeded
-```
-
-If the disk is missing and the VM is running, `-RestartIfNeeded` halts that
-node, creates/attaches the VDI, and starts the node again with
-`--no-provision`. If the correct disk is already attached, the helper performs
-no storage change.
-
-For normal fresh-cluster creation you do **not** need to run this manually;
-`up.ps1` calls it automatically for master, worker1 and worker2.
-
-Do not destroy an existing VM just to attach the additional disk when its data
-must be preserved.
-
-## The new disk is intentionally NOT formatted automatically
-
-The repository helper only creates and attaches the disk.
-
-It does not automatically:
-
-```text
-mkfs
-mount
-change /etc/fstab
-register a Longhorn disk
-```
-
-This is deliberate. After a restore or hardware-layout change, Linux device
-names can differ. Automatically formatting a guessed `/dev/sdb` could destroy
-existing data.
-
-First inspect:
-
-```powershell
-vagrant ssh k3s-worker1 -c "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS,UUID"
-```
-
-Only after confirming which device is the brand-new empty disk should it be
-formatted/mounted.
-
-Example for a **verified empty** `/dev/sdb`:
-
-```bash
-sudo mkfs.ext4 /dev/sdb
-sudo mkdir -p /mnt/longhorn
-UUID="$(sudo blkid -s UUID -o value /dev/sdb)"
-echo "UUID=${UUID} /mnt/longhorn ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
-sudo mount -a
-df -h /mnt/longhorn
-```
-
-Never run `mkfs` against a disk containing data.
-
-## Add the new disk to Longhorn without deleting existing data
-
-Do not mount a blank disk directly over:
-
-```text
-/var/lib/longhorn
-```
-
-because that would hide the existing Longhorn files under the mount point.
-
-Use a separate path such as:
-
-```text
-/mnt/longhorn
-```
-
-Then in Longhorn:
-
-```text
-Longhorn UI
-  -> Node
-  -> select node
-  -> Edit Node and Disks
-  -> Add Disk
-  -> Path: /mnt/longhorn
-  -> Allow Scheduling: enabled
-```
-
-Keep the existing `/var/lib/longhorn` disk available while required replicas
-still exist there.
-
-Safe migration model:
-
-```text
-1. Attach the new VDI.
-2. Identify it with lsblk.
-3. Format/mount only the verified new disk.
-4. Add /mnt/longhorn to Longhorn.
-5. Allow scheduling on the new disk.
-6. Let Longhorn rebuild/place replicas there.
-7. Verify all volumes are healthy.
-8. Disable scheduling on the old disk if desired.
-9. Evict/move remaining replicas through Longhorn.
-10. Remove the old Longhorn disk only after no required replica remains.
-```
-
-## Storage status and validation
-
-The normal status command now includes the configured storage values and
-`lsblk` output for running K3s VMs:
-
-```powershell
-.\scripts\status.ps1
-```
-
-The prerequisite check validates the Vagrant-managed primary-disk code path.
-The additional VDI does not use Vagrant `vm.disk`; repository validation
-checks the VBoxManage helper instead:
-
-```powershell
-.\scripts\prereq.ps1
-```
-
-Repository validation checks that the boot-disk option remains in the
-Vagrantfile and that the additional VDI remains outside Vagrant disk
-management:
-
-```powershell
-.\scripts\validate-repo.ps1
-.\scripts\validate-vagrant.ps1
-```
-
-## Restore-point rule
-
-After the new data disks are attached, mounted and verified, create a **new**
-restore point representing the new storage layout:
-
-```powershell
-.\scripts\restore-point.ps1 create storage-layout-v1 -Level both
-```
-
-Older snapshots can still be useful, but a snapshot created before a new disk
-existed must not be treated as a backup of data later written to that disk.
-
-See:
-
-```text
-RESTORE-POINTS.md
-```
-
-for the additional-disk snapshot guidance.
-
-## Destroy behavior
-
-The existing Kubernetes destroy script still targets only:
-
-```text
-k3s-master
-k3s-worker1
-k3s-worker2
-```
-
-but `VBoxManage unregistervm --delete` also deletes media attached to those VMs.
-That includes repository-managed VirtualBox additional data disks attached to the VMs.
-
-Do not run:
-
-```powershell
-.\scripts\destroy.ps1
-```
-
-when data on those disks must be preserved.
-
-Jenkins remains separate and is not destroyed by the K3s destroy workflow.
-
-## Recommended lab layout
-
-```text
-k3s-master
-  boot/root disk
-    Ubuntu + K3s + containerd
-  additional VDI
-    /mnt/longhorn
-
-k3s-worker1
-  boot/root disk
-    Ubuntu + K3s + containerd
-  additional VDI
-    /mnt/longhorn
-
-k3s-worker2
-  boot/root disk
-    Ubuntu + K3s + containerd
-  additional VDI
-    /mnt/longhorn
-```
-
-For the current training environment, the additional VDI is the safer way to
-increase Longhorn capacity without modifying the snapshot-backed 64 GiB boot
-disk.
-
----
-
-# Vagrant / VirtualBox Compatibility and Stale-State Preflight
-
-This section is an **append-only correction** to the Stage 1 VM creation guidance above.
-The VM storage options are unchanged.
-
-Before `up.ps1`, the repository now performs two read-only preflight checks so a
-provider/state problem is reported **before** Vagrant starts changing individual VMs.
-
-## Vagrant / VirtualBox compatibility
-
-The lab now validates the installed provider combination automatically.
-
-Known minimum versions used by the preflight are:
-
-```text
-VirtualBox 7.0 -> Vagrant 2.3.2 or newer
-VirtualBox 7.1 -> Vagrant 2.4.2 or newer
-VirtualBox 7.2 -> Vagrant 2.4.9 or newer
-```
-
-For example, this combination is rejected before Stage 1 starts:
-
-```text
-Vagrant 2.4.1 + VirtualBox 7.1.x
-```
-
-because VirtualBox 7.1 provider support was added after Vagrant 2.4.1.
-
-Run the check directly at any time:
-
-```powershell
-.\scripts\check-vagrant-virtualbox-compat.ps1
-```
-
-It is also executed automatically by:
-
-```text
-scripts\prereq.ps1
-scripts\up.ps1
-scripts\run.ps1
-scripts\resume.ps1
-scripts\jenkins-up.ps1
-scripts\jenkins-run.ps1
-scripts\jenkins-resume.ps1
-scripts\jenkins-reprovision.ps1
-```
-
-The check only reads installed versions. It does not modify a VM or disk.
-
-## Stale Vagrant machine UUID detection
-
-A separate preflight verifies that a UUID stored under:
-
-```text
-.vagrant\machines\<machine>\virtualbox\id
-```
-
-still exists in the VirtualBox registry.
-
-Run it manually:
-
-```powershell
-.\scripts\check-vagrant-state.ps1
-```
-
-For Jenkins only:
-
-```powershell
-.\scripts\check-vagrant-state.ps1 -Machine jenkins
-```
-
-If Vagrant references a VM UUID that VirtualBox no longer has, Stage 1 now stops
-before creating another node and prints the exact affected machine.
-
-The check is read-only and never removes VMs or disks.
-
-When the UUID is confirmed stale and VirtualBox does **not** contain another VM
-with the same machine name, repair only Vagrant's local metadata with:
-
-```powershell
-.\scripts\repair-stale-vagrant-state.ps1 -Machine k3s-worker2
-```
-
-The repair script moves the stale `.vagrant` machine metadata into:
-
-```text
-.vagrant\stale-state-backup\
-```
-
-It does **not** delete VirtualBox VM files or virtual disks.
-
-If VirtualBox already contains a VM with the same name but a different UUID, the
-repair script refuses automatic changes so an existing VM cannot be silently
-replaced.
-
-## Recommended Stage 1 preflight
-
-Before creating/recreating the lab:
-
-```powershell
-cd D:\k8s-windows-lab-template
-. .\scripts\lab-config.ps1
-
-.\scripts\prereq.ps1
-.\scripts\check-vagrant-state.ps1
-.\scripts\up.ps1
-```
-
-This catches unsupported VirtualBox provider versions and stale Vagrant UUID
-state before the three-node creation sequence begins.
-
----
-
-## Vagrant preflight runtime correction
-
-The repository preflight captures the complete output of native commands such as
-`vagrant --version` and `VBoxManage --version` before checking their exit codes.
-
-This is intentional for Windows PowerShell compatibility. Do not pipe the native
-version command directly into `Select-Object` before reading `$LASTEXITCODE`,
-because doing so can produce a false `Unable to determine Vagrant version`
-failure even when `vagrant --version` works normally.
-
-Normal startup remains:
-
-```powershell
-cd D:\k8s-windows-lab-template
-. .\scripts\lab-config.ps1
-.\scripts\up.ps1
-```
-
-If the installed Vagrant and VirtualBox versions are compatible, the preflight
-continues to the Vagrant-state check and then Stage 1 VM creation. If they are
-not compatible, the preflight reports the detected versions and stops before
-changing any VM.
-
----
-
-# Additional VDI Runtime Fix — Vagrant 2.4.1 / VirtualBox
-
-This section supersedes earlier wording that described the additional K3s data
-disk as a Vagrant-managed `vm.disk`.
-
-## Current implementation
-
-```text
-Boot/root disk
-  -> Vagrant vm.disk primary: true
-  -> intended mainly for fresh VM creation
-
-Additional data VDI
-  -> NOT declared in Vagrantfile
-  -> scripts\ensure-k3s-additional-disk.ps1
-  -> VBoxManage storagectl + createmedium + storageattach
-  -> dedicated controller: K3s Data SATA
-  -> dynamically allocated VDI
-```
-
-The change is deliberate. The repository avoids Vagrant additional-disk
-reconciliation for the Longhorn/data VDI and uses VirtualBox directly for that
-one disk.
-
-## Fresh environment workflow
-
-After `vagrant destroy` and removal of `.vagrant`, use:
-
-```powershell
-cd D:\k8s-windows-lab-template
-. .\scripts\lab-config.ps1
-
-$env:K8S_ADDITIONAL_DISK_GB = "250"
-
-.\scripts\up.ps1
-```
-
-For each K3s node, Stage 1 now performs:
-
-```text
-vagrant up <node>
-  -> create/provision the VM normally
-  -> Vagrant manages no additional data disk
-
-ensure-k3s-additional-disk.ps1
-  -> disabled setting: no-op
-  -> correct disk already attached: no-op
-  -> otherwise halt that node
-  -> add dedicated SATA controller when needed
-  -> create the VDI only when missing
-  -> attach the VDI
-  -> restart the node with --no-provision
-```
-
-## Snapshot behavior
-
-The additional VDI is an attached normal VirtualBox hard disk and therefore
-participates in VM snapshots. After a snapshot, VirtualBox may expose a
-differencing image under the VM's `Snapshots` directory.
-
-The helper checks the dedicated controller slot first. If a medium is already
-attached there, including a snapshot differencing image, it treats that as the
-existing data-disk chain and does not recreate the base VDI.
-
-## Safety rules
-
-```text
-- The helper never formats the guest disk.
-- The helper never mounts the guest disk.
-- The helper never automatically resizes an existing data VDI.
-- A configured-size mismatch stops with an error.
-- Existing attached snapshot media are not replaced.
-- Longhorn registration/migration remains an explicit storage task.
-```
-
-## Destroy behavior
-
-`scripts\destroy.ps1` uses `VBoxManage unregistervm <vm> --delete`, so hard
-disk image files associated with those K3s VMs are deleted with the VMs.
-Do not destroy the K3s VMs when data on the additional VDIs must be preserved.
-
