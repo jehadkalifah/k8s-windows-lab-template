@@ -70,11 +70,11 @@ grow_root_filesystem() {
   set -e
   printf '%s\n' "${growpart_output}"
 
-  if [ "${growpart_status}" -ne 0 ]; then
-    if printf '%s\n' "${growpart_output}" | grep -Eiq 'NOCHANGE|nothing to do'; then
-      return 0
-    fi
+  if printf '%s\n' "${growpart_output}" | grep -Eiq 'NOCHANGE|nothing to do'; then
+    return 0
+  fi
 
+  if [ "${growpart_status}" -ne 0 ]; then
     return "${growpart_status}"
   fi
 

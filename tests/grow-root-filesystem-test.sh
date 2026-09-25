@@ -228,7 +228,7 @@ test_growpart_nochange_skips_filesystem_resize() {
     MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
     MOCK_FINDMNT_FSTYPE="ext4" \
     MOCK_GROWPART_OUTPUT="NOCHANGE: partition already fills the available space" \
-    MOCK_GROWPART_STATUS="1" \
+    MOCK_GROWPART_STATUS="0" \
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
   )"
 
