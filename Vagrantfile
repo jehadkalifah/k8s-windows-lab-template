@@ -27,7 +27,7 @@ Vagrant.configure("2") do |config|
   # Maintenance commands such as halt/status/destroy/snapshot/ssh remain usable.
   command = ARGV[0].to_s
   commands_requiring_bridge = ["up", "reload", "provision"]
-  commands_requiring_disksize = ["up", "reload", "provision"]
+  commands_requiring_disksize = ["up", "reload"]
 
   if commands_requiring_bridge.include?(command) && !bridge_configured
     abort <<~MSG
