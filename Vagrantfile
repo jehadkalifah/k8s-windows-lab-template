@@ -3,20 +3,21 @@ Vagrant.configure("2") do |config|
   config.vm.box_check_update = false
   config.ssh.insert_key = false
   config.vm.boot_timeout = (ENV["VAGRANT_BOOT_TIMEOUT"] || "600").to_i
+  default_disk_size_mb = 256000
 
   cpus_master = (ENV["K8S_MASTER_CPUS"] || "4").to_i
   mem_master  = (ENV["K8S_MASTER_MEM"]  || "6144").to_i
-  disk_size_master = (ENV["K8S_MASTER_DISK_MB"] || "256000").to_i
+  disk_size_master = (ENV["K8S_MASTER_DISK_MB"] || default_disk_size_mb.to_s).to_i
   cpus_worker = (ENV["K8S_WORKER_CPUS"] || "2").to_i
   mem_worker  = (ENV["K8S_WORKER_MEM"]  || "4096").to_i
-  disk_size_worker = (ENV["K8S_WORKER_DISK_MB"] || "256000").to_i
+  disk_size_worker = (ENV["K8S_WORKER_DISK_MB"] || default_disk_size_mb.to_s).to_i
 
   # External Jenkins controller VM. This VM is NOT a Kubernetes node.
   jenkins_mgmt_ip = ENV["JENKINS_MGMT_IP"] || "192.168.56.20"
   jenkins_lan_ip  = ENV["JENKINS_LAN_IP"]  || "192.168.100.220"
   jenkins_cpus    = (ENV["JENKINS_CPUS"] || "2").to_i
   jenkins_mem     = (ENV["JENKINS_MEM"]  || "4096").to_i
-  jenkins_disk_mb = (ENV["JENKINS_DISK_MB"] || "256000").to_i
+  jenkins_disk_mb = (ENV["JENKINS_DISK_MB"] || default_disk_size_mb.to_s).to_i
   jenkins_version = ENV["JENKINS_VERSION"] || "2.568.3"
 
   bridge_adapter = ENV["K8S_BRIDGE_ADAPTER"]
@@ -28,6 +29,9 @@ Vagrant.configure("2") do |config|
   command = ARGV[0].to_s
   commands_requiring_bridge = ["up", "reload", "provision"]
   commands_requiring_disksize = ["up"]
+  if command == "reload" && [disk_size_master, disk_size_worker, jenkins_disk_mb].any? { |size| size != default_disk_size_mb }
+    commands_requiring_disksize << "reload"
+  end
 
   if commands_requiring_bridge.include?(command) && !bridge_configured
     abort <<~MSG

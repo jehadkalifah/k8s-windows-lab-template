@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+resolve_backing_partition_device() {
+  local current_device_name next_device_name
+
+  current_device_name="$(basename "$(readlink -f "$1")")"
+  while [ -d "/sys/class/block/${current_device_name}/slaves" ]; do
+    next_device_name="$(find "/sys/class/block/${current_device_name}/slaves" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -1 || true)"
+    if [ -z "${next_device_name}" ]; then
+      break
+    fi
+
+    current_device_name="${next_device_name}"
+  done
+
+  printf '/dev/%s\n' "${current_device_name}"
+}
+
 grow_root_filesystem() {
   local root_source root_fs partition_device partition_number parent_disk_name parent_disk_device
   local growpart_output=""
@@ -14,7 +30,7 @@ grow_root_filesystem() {
     return 0
   fi
 
-  partition_device="$(readlink -f "${root_source}")"
+  partition_device="$(resolve_backing_partition_device "${root_source}")"
   parent_disk_name="$(lsblk -no PKNAME "${partition_device}" 2>/dev/null | head -1 || true)"
   partition_number="$(lsblk -no PARTN "${partition_device}" 2>/dev/null | head -1 || true)"
 
