@@ -41,7 +41,7 @@ grow_root_filesystem() {
     return 0
   fi
   partition_device_name="$(basename "${partition_device}")"
-  parent_disk_name="$(basename "$(dirname "$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}")")")"
+  parent_disk_name="$(basename "$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/..")")"
   partition_number="$(cat "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/partition" 2>/dev/null || true)"
 
   if [ -z "${partition_device}" ] || [ -z "${parent_disk_name}" ] || [ -z "${partition_number}" ]; then
@@ -66,7 +66,9 @@ grow_root_filesystem() {
       return 0
     fi
 
-    apt-get update
+    if [ "${ROOT_GROW_SKIP_APT_UPDATE:-0}" != "1" ]; then
+      apt-get update
+    fi
     apt-get install -y "${required_packages[@]}"
   fi
 

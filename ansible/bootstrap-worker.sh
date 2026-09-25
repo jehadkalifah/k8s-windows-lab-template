@@ -3,10 +3,11 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+apt-get update
+export ROOT_GROW_SKIP_APT_UPDATE=1
 source /vagrant/ansible/grow-root-filesystem.sh
 grow_root_filesystem
 
-apt-get update
 apt-get install -y \
   curl \
   jq \

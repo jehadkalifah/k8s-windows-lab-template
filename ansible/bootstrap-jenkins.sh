@@ -5,6 +5,8 @@ JENKINS_VERSION="${1:-2.568.3}"
 
 export DEBIAN_FRONTEND=noninteractive
 
+apt-get update
+export ROOT_GROW_SKIP_APT_UPDATE=1
 source /vagrant/ansible/grow-root-filesystem.sh
 grow_root_filesystem
 
@@ -17,7 +19,6 @@ echo "Port:        8080"
 echo "Context:     /jenkins"
 echo
 
-apt-get update
 apt-get install -y   ca-certificates   curl   fontconfig   gnupg   openjdk-21-jre   wget
 
 install -m 0755 -d /etc/apt/keyrings
