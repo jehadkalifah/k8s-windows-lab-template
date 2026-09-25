@@ -23,15 +23,13 @@ Vagrant.configure("2") do |config|
   bridge_adapter = ENV["K8S_BRIDGE_ADAPTER"]
   flannel_iface = ENV["K3S_FLANNEL_IFACE"] || "eth1"
   bridge_configured = !(bridge_adapter.nil? || bridge_adapter.strip.empty?)
+  disksize_plugin_installed = Vagrant.has_plugin?("vagrant-disksize")
 
   # Only commands that CREATE/RECONFIGURE networking require bridge variables.
   # Maintenance commands such as halt/status/destroy/snapshot/ssh remain usable.
   command = ARGV[0].to_s
   commands_requiring_bridge = ["up", "reload", "provision"]
-  commands_requiring_disksize = ["up"]
-  if command == "reload" && [disk_size_master, disk_size_worker, jenkins_disk_mb].any? { |size| size != default_disk_size_mb }
-    commands_requiring_disksize << "reload"
-  end
+  commands_requiring_disksize = ["up", "reload"]
 
   if commands_requiring_bridge.include?(command) && !bridge_configured
     abort <<~MSG
@@ -47,7 +45,7 @@ Vagrant.configure("2") do |config|
     MSG
   end
 
-  if commands_requiring_disksize.include?(command) && !Vagrant.has_plugin?("vagrant-disksize")
+  if commands_requiring_disksize.include?(command) && !disksize_plugin_installed
     abort <<~MSG
 
       The vagrant-disksize plugin is required for '#{command}'.
@@ -94,7 +92,7 @@ Vagrant.configure("2") do |config|
   nodes.each do |node|
     config.vm.define node[:name] do |vm|
       vm.vm.hostname = node[:name]
-      if commands_requiring_disksize.include?(command)
+      if disksize_plugin_installed
         vm.disksize.size = "#{node[:disk_size_mb]}MB"
       end
 
@@ -144,7 +142,7 @@ Vagrant.configure("2") do |config|
 # it through a selector-less Service + EndpointSlice + HTTPRoute.
 config.vm.define "jenkins" do |vm|
   vm.vm.hostname = "jenkins"
-  if commands_requiring_disksize.include?(command)
+  if disksize_plugin_installed
     vm.disksize.size = "#{jenkins_disk_mb}MB"
   end
 

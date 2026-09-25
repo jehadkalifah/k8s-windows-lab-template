@@ -16,6 +16,10 @@ resolve_backing_partition_device() {
     current_device_name="${next_device_name}"
   done
 
+  if [ ! -f "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/partition" ]; then
+    return 1
+  fi
+
   printf '/dev/%s\n' "${current_device_name}"
 }
 
@@ -32,7 +36,10 @@ grow_root_filesystem() {
     return 0
   fi
 
-  partition_device="$(resolve_backing_partition_device "${root_source}")"
+  if ! partition_device="$(resolve_backing_partition_device "${root_source}")"; then
+    echo "Skipping root disk growth: unsupported root device layout (${root_source:-unknown})."
+    return 0
+  fi
   parent_disk_name="$(lsblk -no PKNAME "${partition_device}" 2>/dev/null | head -1 || true)"
   partition_number="$(lsblk -no PARTN "${partition_device}" 2>/dev/null | head -1 || true)"
 

@@ -13,6 +13,31 @@ make_mock_bin() {
   local bin_dir="$1"
   mkdir -p "${bin_dir}"
 
+  cat >"${bin_dir}/bash" <<'EOF'
+#!/bin/bash
+exec /bin/bash "$@"
+EOF
+
+  cat >"${bin_dir}/basename" <<'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/basename "$@"
+EOF
+
+  cat >"${bin_dir}/find" <<'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/find "$@"
+EOF
+
+  cat >"${bin_dir}/grep" <<'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/grep "$@"
+EOF
+
+  cat >"${bin_dir}/head" <<'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/head "$@"
+EOF
+
   cat >"${bin_dir}/readlink" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -76,7 +101,49 @@ EOF
   cat >"${bin_dir}/apt-get" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-echo "apt-get should not be called in this test" >&2
+if [ -n "${MOCK_APT_LOG:-}" ]; then
+  printf '%s\n' "$*" >>"${MOCK_APT_LOG}"
+fi
+
+if [ "$1" = "update" ]; then
+  exit 0
+fi
+
+if [ "$1" = "install" ] && [ "$2" = "-y" ]; then
+  shift 2
+  for package in "$@"; do
+    case "${package}" in
+      cloud-guest-utils)
+        /bin/cat >"${MOCK_BIN_DIR}/growpart" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "${MOCK_GROWPART_OUTPUT:-CHANGED: disk expanded}"
+exit "${MOCK_GROWPART_STATUS:-0}"
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/growpart"
+        ;;
+      e2fsprogs)
+        /bin/cat >"${MOCK_BIN_DIR}/resize2fs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$1" >"${MOCK_RESIZE2FS_LOG}"
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/resize2fs"
+        ;;
+      xfsprogs)
+        /bin/cat >"${MOCK_BIN_DIR}/xfs_growfs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$1" >"${MOCK_XFS_GROWFS_LOG}"
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/xfs_growfs"
+        ;;
+    esac
+  done
+  exit 0
+fi
+
+echo "unexpected apt-get invocation: $*" >&2
 exit 1
 EOF
 
@@ -196,10 +263,75 @@ test_grow_xfs_root_uses_xfs_growfs() {
   rm -rf "${temp_dir}"
 }
 
+test_installs_missing_ext_tools() {
+  local temp_dir sys_root bin_dir apt_log resize_log output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  apt_log="${temp_dir}/apt.log"
+  resize_log="${temp_dir}/resize2fs.log"
+
+  mkdir -p "${sys_root}/dm-0/slaves/sda3" "${sys_root}/sda3"
+  : >"${sys_root}/sda3/partition"
+  make_mock_bin "${bin_dir}"
+  rm -f "${bin_dir}/growpart" "${bin_dir}/resize2fs"
+
+  output="$(
+    PATH="${bin_dir}" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_BIN_DIR="${bin_dir}" \
+    MOCK_APT_LOG="${apt_log}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_RESIZE2FS_LOG="${resize_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'update' "${apt_log}" || fail "expected apt-get update for missing ext tools"
+  grep -q 'install -y cloud-guest-utils e2fsprogs' "${apt_log}" || fail "expected ext tool packages to be installed"
+  grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after ext tool install"
+  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run after installing ext tools"
+
+  rm -rf "${temp_dir}"
+}
+
+test_installs_missing_xfs_tool() {
+  local temp_dir sys_root bin_dir apt_log xfs_log output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  apt_log="${temp_dir}/apt.log"
+  xfs_log="${temp_dir}/xfs_growfs.log"
+
+  mkdir -p "${sys_root}/dm-0/slaves/sda3" "${sys_root}/sda3"
+  : >"${sys_root}/sda3/partition"
+  make_mock_bin "${bin_dir}"
+  rm -f "${bin_dir}/xfs_growfs"
+
+  output="$(
+    PATH="${bin_dir}" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_BIN_DIR="${bin_dir}" \
+    MOCK_APT_LOG="${apt_log}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="xfs" \
+    MOCK_XFS_GROWFS_LOG="${xfs_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'install -y xfsprogs' "${apt_log}" || fail "expected xfsprogs to be installed when xfs_growfs is missing"
+  grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after xfs tool install"
+  [ "$(cat "${xfs_log}")" = "/" ] || fail "expected xfs_growfs to run after installing xfs tools"
+
+  rm -rf "${temp_dir}"
+}
+
 test_resolve_direct_partition
 test_resolve_lvm_partition
 test_grow_lvm_ext_root_resizes_logical_volume
 test_growpart_nochange_skips_filesystem_resize
 test_grow_xfs_root_uses_xfs_growfs
+test_installs_missing_ext_tools
+test_installs_missing_xfs_tool
 
 echo "PASS: grow-root-filesystem helper"
