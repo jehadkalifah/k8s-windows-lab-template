@@ -7,8 +7,7 @@ $content = Get-Content $Vagrantfile -Raw
 
 Write-Host "Checking Vagrantfile..." -ForegroundColor Cyan
 
-if ($content -match 'K8S_BRIDGE_ADAPTER is not configured' -or
-    $content -match 'abort\s+<<~MSG') {
+if ($content -match 'K8S_BRIDGE_ADAPTER is not configured') {
     Write-Host "FAIL: old hard bridge abort is still present." -ForegroundColor Red
     exit 1
 }
@@ -18,6 +17,16 @@ if ($content -match 'if bridge_configured') {
 }
 else {
     Write-Host "WARNING: conditional bridge block was not found." -ForegroundColor Yellow
+}
+
+$guardedDisksizeMatches = [regex]::Matches($content, 'if disksize_plugin_installed\s+vm\.disksize\.size')
+if ($content -match 'commands_requiring_disksize = \["up", "reload"\]' -and
+    $content -match 'Vagrant\.has_plugin\?\("vagrant-disksize"\)' -and
+    $guardedDisksizeMatches.Count -ge 2) {
+    Write-Host "PASS: disksize plugin guard and per-VM disk sizing are present." -ForegroundColor Green
+}
+else {
+    Write-Host "WARNING: disksize plugin guard or per-VM disk sizing was not found." -ForegroundColor Yellow
 }
 
 Write-Host "Vagrantfile maintenance commands should no longer require bridge variables." -ForegroundColor Green

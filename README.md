@@ -4112,6 +4112,39 @@ config.vm.boot_timeout
 If the VM really does not become SSH-ready within 600 seconds, the workflow
 still fails correctly.
 
+## Root disk sizing
+
+The Vagrantfile now also sizes each Ubuntu root disk from environment
+variables:
+
+```ruby
+disk_size_master = (ENV["K8S_MASTER_DISK_MB"] || "256000").to_i
+disk_size_worker = (ENV["K8S_WORKER_DISK_MB"] || "256000").to_i
+jenkins_disk_mb  = (ENV["JENKINS_DISK_MB"] || "256000").to_i
+```
+
+`k3s-master`, `k3s-worker1`, `k3s-worker2`, and `jenkins` therefore default to
+**250GB** root disks with no manual VirtualBox steps.
+
+Install the required plugin once:
+
+```powershell
+vagrant plugin install vagrant-disksize
+```
+
+Copy these optional overrides from `scripts\lab-config.ps1.example` into your
+local `scripts\lab-config.ps1` if you want different sizes:
+
+```powershell
+$env:K8S_MASTER_DISK_MB = "256000"
+$env:K8S_WORKER_DISK_MB = "256000"
+$env:JENKINS_DISK_MB    = "256000"
+```
+
+During provisioning the guest bootstrap scripts automatically run `growpart`
+and then grow the root filesystem (`resize2fs` or `xfs_growfs` as needed), so
+no manual resize steps are required after `.\scripts\up.ps1` or `vagrant up`.
+
 ## Corrected scripts
 
 The following scripts share the corrected cluster-only lifecycle logic:

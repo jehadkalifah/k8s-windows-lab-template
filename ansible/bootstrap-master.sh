@@ -9,6 +9,10 @@ K3S_VERSION="v1.36.1+k3s1"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
+export ROOT_GROW_SKIP_APT_UPDATE=1
+source /vagrant/ansible/grow-root-filesystem.sh
+grow_root_filesystem
+
 apt-get install -y \
   curl \
   jq \
