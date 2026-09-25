@@ -46,6 +46,9 @@ grow_root_filesystem() {
   if ! command -v growpart >/dev/null 2>&1; then
     required_packages+=(cloud-guest-utils)
   fi
+  if [[ "${root_fs}" =~ ^ext[234]$ ]] && ! command -v resize2fs >/dev/null 2>&1; then
+    required_packages+=(e2fsprogs)
+  fi
   if [ "${root_fs}" = "xfs" ] && ! command -v xfs_growfs >/dev/null 2>&1; then
     required_packages+=(xfsprogs)
   fi

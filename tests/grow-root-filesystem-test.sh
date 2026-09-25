@@ -57,7 +57,8 @@ EOF
   cat >"${bin_dir}/growpart" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'CHANGED: disk expanded\n'
+printf '%s\n' "${MOCK_GROWPART_OUTPUT:-CHANGED: disk expanded}"
+exit "${MOCK_GROWPART_STATUS:-0}"
 EOF
 
   cat >"${bin_dir}/resize2fs" <<'EOF'
@@ -69,8 +70,7 @@ EOF
   cat >"${bin_dir}/xfs_growfs" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-echo "xfs_growfs should not be called in this test" >&2
-exit 1
+printf '%s\n' "$1" >"${MOCK_XFS_GROWFS_LOG}"
 EOF
 
   cat >"${bin_dir}/apt-get" <<'EOF'
@@ -145,8 +145,61 @@ test_grow_lvm_ext_root_resizes_logical_volume() {
   rm -rf "${temp_dir}"
 }
 
+test_growpart_nochange_skips_filesystem_resize() {
+  local temp_dir sys_root bin_dir output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+
+  mkdir -p "${sys_root}/dm-0/slaves/sda3" "${sys_root}/sda3"
+  : >"${sys_root}/sda3/partition"
+  make_mock_bin "${bin_dir}"
+
+  output="$(
+    PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_GROWPART_OUTPUT="NOCHANGE: partition already fills the available space" \
+    MOCK_GROWPART_STATUS="1" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'NOCHANGE: partition already fills the available space' <<<"${output}" || fail "expected NOCHANGE output to be printed"
+
+  rm -rf "${temp_dir}"
+}
+
+test_grow_xfs_root_uses_xfs_growfs() {
+  local temp_dir sys_root bin_dir xfs_log output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  xfs_log="${temp_dir}/xfs_growfs.log"
+
+  mkdir -p "${sys_root}/dm-0/slaves/sda3" "${sys_root}/sda3"
+  : >"${sys_root}/sda3/partition"
+  make_mock_bin "${bin_dir}"
+
+  output="$(
+    PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="xfs" \
+    MOCK_XFS_GROWFS_LOG="${xfs_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output for xfs path"
+  [ "$(cat "${xfs_log}")" = "/" ] || fail "expected xfs_growfs to run on /"
+
+  rm -rf "${temp_dir}"
+}
+
 test_resolve_direct_partition
 test_resolve_lvm_partition
 test_grow_lvm_ext_root_resizes_logical_volume
+test_growpart_nochange_skips_filesystem_resize
+test_grow_xfs_root_uses_xfs_growfs
 
 echo "PASS: grow-root-filesystem helper"
