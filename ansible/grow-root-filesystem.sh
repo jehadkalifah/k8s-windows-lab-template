@@ -76,10 +76,6 @@ grow_root_filesystem() {
   set -e
   printf '%s\n' "${growpart_output}"
 
-  if [ "${growpart_status}" -eq 0 ] && printf '%s\n' "${growpart_output}" | grep -Eiq 'NOCHANGE|nothing to do'; then
-    return 0
-  fi
-
   if [ "${growpart_status}" -ne 0 ]; then
     return "${growpart_status}"
   fi
@@ -89,7 +85,14 @@ grow_root_filesystem() {
       resize2fs "${root_source}"
       ;;
     xfs)
-      xfs_growfs /
+      set +e
+      growpart_output="$(xfs_growfs / 2>&1)"
+      growpart_status=$?
+      set -e
+      printf '%s\n' "${growpart_output}"
+      if [ "${growpart_status}" -ne 0 ] && ! printf '%s\n' "${growpart_output}" | grep -Eiq 'data size unchanged|nothing to do'; then
+        return "${growpart_status}"
+      fi
       ;;
     *)
       echo "Skipping filesystem growth for unsupported root filesystem type: ${root_fs}."
