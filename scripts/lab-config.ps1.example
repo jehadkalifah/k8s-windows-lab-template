@@ -53,6 +53,11 @@ $env:METALLB_POOL_END   = "192.168.100.245"
 # $env:K8S_WORKER_CPUS = "2"
 # $env:K8S_WORKER_MEM  = "4096"
 
+# Optional root disk size overrides (in MB). Default is 250GB (256000 MB).
+# $env:K8S_MASTER_DISK_MB = "256000"
+# $env:K8S_WORKER_DISK_MB = "256000"
+# $env:JENKINS_DISK_MB = "256000"
+
 
 # Shared Stage 2 publishing Gateway.
 $env:K8S_GATEWAY_NAMESPACE = "istio-ingress"

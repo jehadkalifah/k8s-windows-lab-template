@@ -6,14 +6,17 @@ Vagrant.configure("2") do |config|
 
   cpus_master = (ENV["K8S_MASTER_CPUS"] || "4").to_i
   mem_master  = (ENV["K8S_MASTER_MEM"]  || "6144").to_i
+  disk_size_master = (ENV["K8S_MASTER_DISK_MB"] || "256000").to_i
   cpus_worker = (ENV["K8S_WORKER_CPUS"] || "2").to_i
   mem_worker  = (ENV["K8S_WORKER_MEM"]  || "4096").to_i
+  disk_size_worker = (ENV["K8S_WORKER_DISK_MB"] || "256000").to_i
 
   # External Jenkins controller VM. This VM is NOT a Kubernetes node.
   jenkins_mgmt_ip = ENV["JENKINS_MGMT_IP"] || "192.168.56.20"
   jenkins_lan_ip  = ENV["JENKINS_LAN_IP"]  || "192.168.100.220"
   jenkins_cpus    = (ENV["JENKINS_CPUS"] || "2").to_i
   jenkins_mem     = (ENV["JENKINS_MEM"]  || "4096").to_i
+  jenkins_disk_mb = (ENV["JENKINS_DISK_MB"] || "256000").to_i
   jenkins_version = ENV["JENKINS_VERSION"] || "2.568.3"
 
   bridge_adapter = ENV["K8S_BRIDGE_ADAPTER"]
@@ -39,6 +42,20 @@ Vagrant.configure("2") do |config|
     MSG
   end
 
+  if commands_requiring_bridge.include?(command) && !Vagrant.has_plugin?("vagrant-disksize")
+    abort <<~MSG
+
+      The vagrant-disksize plugin is required for '#{command}'.
+
+      Install it once with:
+        vagrant plugin install vagrant-disksize
+
+      Then retry:
+        .\\scripts\\up.ps1
+
+    MSG
+  end
+
   nodes = [
     {
       name: "k3s-master",
@@ -46,6 +63,7 @@ Vagrant.configure("2") do |config|
       lan_ip: ENV["K3S_MASTER_LAN_IP"],
       cpus: cpus_master,
       memory: mem_master,
+      disk_size_mb: disk_size_master,
       role: "server"
     },
     {
@@ -54,6 +72,7 @@ Vagrant.configure("2") do |config|
       lan_ip: ENV["K3S_WORKER1_LAN_IP"],
       cpus: cpus_worker,
       memory: mem_worker,
+      disk_size_mb: disk_size_worker,
       role: "agent"
     },
     {
@@ -62,6 +81,7 @@ Vagrant.configure("2") do |config|
       lan_ip: ENV["K3S_WORKER2_LAN_IP"],
       cpus: cpus_worker,
       memory: mem_worker,
+      disk_size_mb: disk_size_worker,
       role: "agent"
     }
   ]
@@ -69,6 +89,7 @@ Vagrant.configure("2") do |config|
   nodes.each do |node|
     config.vm.define node[:name] do |vm|
       vm.vm.hostname = node[:name]
+      vm.disksize.size = "#{node[:disk_size_mb]}MB"
 
       # NIC 1: Vagrant NAT for outbound internet.
       # NIC 2: stable host-only K3s management.
@@ -116,6 +137,7 @@ Vagrant.configure("2") do |config|
 # it through a selector-less Service + EndpointSlice + HTTPRoute.
 config.vm.define "jenkins" do |vm|
   vm.vm.hostname = "jenkins"
+  vm.disksize.size = "#{jenkins_disk_mb}MB"
 
   # NIC 1: Vagrant NAT for outbound package/plugin access.
   # NIC 2: host-only management.

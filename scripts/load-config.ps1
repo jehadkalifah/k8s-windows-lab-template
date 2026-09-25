@@ -44,12 +44,21 @@ if ([string]::IsNullOrWhiteSpace($env:JENKINS_CPUS)) {
 if ([string]::IsNullOrWhiteSpace($env:JENKINS_MEM)) {
     $env:JENKINS_MEM = "4096"
 }
+if ([string]::IsNullOrWhiteSpace($env:JENKINS_DISK_MB)) {
+    $env:JENKINS_DISK_MB = "256000"
+}
 if ([string]::IsNullOrWhiteSpace($env:JENKINS_VERSION)) {
     $env:JENKINS_VERSION = "2.568.3"
 }
 
 if ([string]::IsNullOrWhiteSpace($env:K3S_FLANNEL_IFACE)) {
     $env:K3S_FLANNEL_IFACE = "eth1"
+}
+if ([string]::IsNullOrWhiteSpace($env:K8S_MASTER_DISK_MB)) {
+    $env:K8S_MASTER_DISK_MB = "256000"
+}
+if ([string]::IsNullOrWhiteSpace($env:K8S_WORKER_DISK_MB)) {
+    $env:K8S_WORKER_DISK_MB = "256000"
 }
 $required = @(
     "K8S_BRIDGE_ADAPTER",
