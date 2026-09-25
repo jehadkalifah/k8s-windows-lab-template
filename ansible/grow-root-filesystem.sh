@@ -5,7 +5,7 @@ resolve_backing_partition_device() {
   local current_device_name next_device_name
 
   current_device_name="$(basename "$(readlink -f "$1")")"
-  while [ -d "/sys/class/block/${current_device_name}/slaves" ]; do
+  while [ ! -f "/sys/class/block/${current_device_name}/partition" ] && [ -d "/sys/class/block/${current_device_name}/slaves" ]; do
     next_device_name="$(find "/sys/class/block/${current_device_name}/slaves" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -1 || true)"
     if [ -z "${next_device_name}" ]; then
       break
