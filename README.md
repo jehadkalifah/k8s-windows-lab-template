@@ -231,12 +231,18 @@ MetalLB:
 
 # Start Every PowerShell Session
 
-Before running any lab command, load the repository configuration into the
-current PowerShell session:
+Note: Run the following command to copy the example configuration file:
 
 ```powershell
-cd D:\k8s-windows-lab-template
 cp .\scripts\lab-config.ps1.example .\scripts\lab-config.ps1
+```
+Then modify .\scripts\lab-config.ps1 as needed
+
+Before running any lab command, load the repository configuration into the
+current PowerShell session:
+```powershell
+cd D:\k8s-windows-lab-template
+
 . .\scripts\lab-config.ps1
 ```
 
