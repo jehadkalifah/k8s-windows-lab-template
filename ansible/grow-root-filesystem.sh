@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SYS_CLASS_BLOCK_ROOT="${SYS_CLASS_BLOCK_ROOT:-/sys/class/block}"
+
 resolve_backing_partition_device() {
   local current_device_name next_device_name
 
   current_device_name="$(basename "$(readlink -f "$1")")"
-  while [ ! -f "/sys/class/block/${current_device_name}/partition" ] && [ -d "/sys/class/block/${current_device_name}/slaves" ]; do
-    next_device_name="$(find "/sys/class/block/${current_device_name}/slaves" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -1 || true)"
+  while [ ! -f "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/partition" ] && [ -d "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/slaves" ]; do
+    next_device_name="$(find "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/slaves" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -1 || true)"
     if [ -z "${next_device_name}" ]; then
       break
     fi
@@ -68,7 +70,7 @@ grow_root_filesystem() {
 
   case "${root_fs}" in
     ext2|ext3|ext4)
-      resize2fs "${partition_device}"
+      resize2fs "${root_source}"
       ;;
     xfs)
       xfs_growfs /

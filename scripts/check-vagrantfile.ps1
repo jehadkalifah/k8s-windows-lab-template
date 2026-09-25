@@ -19,8 +19,9 @@ else {
     Write-Host "WARNING: conditional bridge block was not found." -ForegroundColor Yellow
 }
 
+$guardedDisksizeMatches = [regex]::Matches($content, 'if commands_requiring_disksize\.include\?\(command\)\s+vm\.disksize\.size')
 if ($content -match 'Vagrant\.has_plugin\?\("vagrant-disksize"\)' -and
-    $content -match 'vm\.disksize\.size') {
+    $guardedDisksizeMatches.Count -ge 2) {
     Write-Host "PASS: disksize plugin guard and per-VM disk sizing are present." -ForegroundColor Green
 }
 else {
