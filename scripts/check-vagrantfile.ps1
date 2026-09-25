@@ -19,7 +19,7 @@ else {
     Write-Host "WARNING: conditional bridge block was not found." -ForegroundColor Yellow
 }
 
-if ($content -match 'vagrant-disksize' -and
+if ($content -match 'Vagrant\.has_plugin\?\("vagrant-disksize"\)' -and
     $content -match 'vm\.disksize\.size') {
     Write-Host "PASS: disksize plugin guard and per-VM disk sizing are present." -ForegroundColor Green
 }

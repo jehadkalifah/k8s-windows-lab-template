@@ -27,6 +27,7 @@ Vagrant.configure("2") do |config|
   # Maintenance commands such as halt/status/destroy/snapshot/ssh remain usable.
   command = ARGV[0].to_s
   commands_requiring_bridge = ["up", "reload", "provision"]
+  commands_requiring_disksize = ["up", "reload", "provision"]
 
   if commands_requiring_bridge.include?(command) && !bridge_configured
     abort <<~MSG
@@ -42,7 +43,7 @@ Vagrant.configure("2") do |config|
     MSG
   end
 
-  if commands_requiring_bridge.include?(command) && !Vagrant.has_plugin?("vagrant-disksize")
+  if commands_requiring_disksize.include?(command) && !Vagrant.has_plugin?("vagrant-disksize")
     abort <<~MSG
 
       The vagrant-disksize plugin is required for '#{command}'.
@@ -89,7 +90,9 @@ Vagrant.configure("2") do |config|
   nodes.each do |node|
     config.vm.define node[:name] do |vm|
       vm.vm.hostname = node[:name]
-      vm.disksize.size = "#{node[:disk_size_mb]}MB"
+      if commands_requiring_disksize.include?(command)
+        vm.disksize.size = "#{node[:disk_size_mb]}MB"
+      end
 
       # NIC 1: Vagrant NAT for outbound internet.
       # NIC 2: stable host-only K3s management.
@@ -137,7 +140,9 @@ Vagrant.configure("2") do |config|
 # it through a selector-less Service + EndpointSlice + HTTPRoute.
 config.vm.define "jenkins" do |vm|
   vm.vm.hostname = "jenkins"
-  vm.disksize.size = "#{jenkins_disk_mb}MB"
+  if commands_requiring_disksize.include?(command)
+    vm.disksize.size = "#{jenkins_disk_mb}MB"
+  end
 
   # NIC 1: Vagrant NAT for outbound package/plugin access.
   # NIC 2: host-only management.
