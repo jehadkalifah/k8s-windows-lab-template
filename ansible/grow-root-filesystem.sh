@@ -6,6 +6,9 @@ SYS_CLASS_BLOCK_ROOT="${SYS_CLASS_BLOCK_ROOT:-/sys/class/block}"
 resolve_block_device_name() {
   local device_path="$1"
   local device_name=""
+  local vg_name=""
+  local lv_name=""
+  local mapper_name=""
   local candidate_path candidate_name
 
   device_name="${device_path##*/}"
@@ -19,6 +22,19 @@ resolve_block_device_name() {
       [ -d "${candidate_path}/dm" ] || continue
       candidate_name="$(cat "${candidate_path}/dm/name" 2>/dev/null || true)"
       if [ "${candidate_name}" = "${device_name}" ]; then
+        printf '%s\n' "${candidate_path##*/}"
+        return 0
+      fi
+    done
+  elif [[ "${device_path}" == /dev/*/* ]]; then
+    vg_name="${device_path#/dev/}"
+    vg_name="${vg_name%%/*}"
+    lv_name="${device_path##*/}"
+    mapper_name="${vg_name//-/--}-${lv_name//-/--}"
+    for candidate_path in "${SYS_CLASS_BLOCK_ROOT}"/dm-*; do
+      [ -d "${candidate_path}/dm" ] || continue
+      candidate_name="$(cat "${candidate_path}/dm/name" 2>/dev/null || true)"
+      if [ "${candidate_name}" = "${mapper_name}" ]; then
         printf '%s\n' "${candidate_path##*/}"
         return 0
       fi
