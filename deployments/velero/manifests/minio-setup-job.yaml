@@ -3,21 +3,88 @@ kind: Job
 metadata:
   name: minio-setup
   namespace: velero
+
 spec:
   backoffLimit: 10
+
   template:
+    metadata:
+      labels:
+        app: minio-setup
+
     spec:
       restartPolicy: OnFailure
+
       containers:
         - name: mc
-          image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+          image: docker.io/library/alpine:3.20
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_USER
+
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ROOT_PASSWORD
+
           command:
             - /bin/sh
             - -c
+
+          args:
             - |
-              until mc alias set local http://minio.velero.svc:9000 minio minio123; do
-                echo "Waiting for MinIO..."
+              set -e
+
+              MC_RELEASE="RELEASE.2025-08-13T08-35-41Z"
+
+              echo "Installing required packages..."
+              apk add --no-cache ca-certificates wget
+
+              echo ""
+              echo "Downloading MinIO Client from GitHub Releases..."
+
+              wget \
+                -O /usr/local/bin/mc \
+                "https://github.com/minio/mc/releases/download/${MC_RELEASE}/mc.linux-amd64.${MC_RELEASE}"
+
+              chmod +x /usr/local/bin/mc
+
+              echo ""
+              echo "MinIO Client version:"
+              /usr/local/bin/mc --version
+
+              echo ""
+              echo "Waiting for MinIO API..."
+
+              until /usr/local/bin/mc alias set \
+                local \
+                http://minio.velero.svc:9000 \
+                "${MINIO_ROOT_USER}" \
+                "${MINIO_ROOT_PASSWORD}"
+              do
+                echo "MinIO is not ready yet..."
                 sleep 3
               done
-              mc mb --ignore-existing local/velero
-              mc ls local
+
+              echo ""
+              echo "MinIO is reachable."
+
+              echo ""
+              echo "Creating Velero bucket..."
+
+              /usr/local/bin/mc mb \
+                --ignore-existing \
+                local/velero
+
+              echo ""
+              echo "Available buckets:"
+              /usr/local/bin/mc ls local
+
+              echo ""
+              echo "MinIO setup completed successfully."

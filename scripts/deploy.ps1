@@ -5,7 +5,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\load-config.ps1"
 
@@ -56,26 +55,9 @@ function Invoke-Stage2Component {
         }
 
         "harbor" {
-            $gatewayNamespace = if ($env:K8S_GATEWAY_NAMESPACE) {
-                $env:K8S_GATEWAY_NAMESPACE
-            }
-            else {
-                "istio-ingress"
-            }
-
-            $gatewayName = if ($env:K8S_GATEWAY_NAME) {
-                $env:K8S_GATEWAY_NAME
-            }
-            else {
-                "public-gateway"
-            }
-
-            $harborHost = if ($env:HARBOR_PUBLISH_HOST) {
-                $env:HARBOR_PUBLISH_HOST
-            }
-            else {
-                ""
-            }
+            $gatewayNamespace = if ($env:K8S_GATEWAY_NAMESPACE) { $env:K8S_GATEWAY_NAMESPACE } else { "istio-ingress" }
+            $gatewayName = if ($env:K8S_GATEWAY_NAME) { $env:K8S_GATEWAY_NAME } else { "public-gateway" }
+            $harborHost = if ($env:HARBOR_PUBLISH_HOST) { $env:HARBOR_PUBLISH_HOST } else { "" }
 
             $remote = "sudo env GATEWAY_NAMESPACE='$gatewayNamespace' GATEWAY_NAME='$gatewayName' HARBOR_PUBLISH_HOST='$harborHost' bash /vagrant/deployments/harbor/install.sh"
             vagrant ssh k3s-master -c $remote
@@ -94,16 +76,7 @@ function Invoke-Stage2Component {
     if ($Name -eq "istio") {
         & "$PSScriptRoot\publish.ps1" all
     }
-    elseif ($Name -in @(
-        "longhorn",
-        "vault",
-        "monitoring",
-        "argocd",
-        "kiali",
-        "keycloak",
-        "harbor",
-        "velero"
-    )) {
+    elseif ($Name -in @("longhorn","vault","monitoring","argocd","kiali","keycloak","harbor","velero")) {
         & "$PSScriptRoot\publish.ps1" $Name
     }
 }
@@ -127,25 +100,24 @@ try {
     if ($Component -eq "all") {
 
         # Authoritative Stage 2 order:
-        #
-        # 1.  cert-manager
-        # 2.  Longhorn
-        #     -> mandatory 20-minute initialization wait
-        #     -> Longhorn deployment readiness verification
-        # 3.  HashiCorp Vault
-        # 4.  Monitoring
-        # 5.  Argo CD
-        # 6.  Stakater Reloader
-        # 7.  Istio + Gateway API + MetalLB
-        # 8.  Kiali Operator + Kiali
-        # 9.  Keycloak Operator + PostgreSQL
+        # 1. cert-manager
+        # 2. Longhorn
+        #    -> wait 20 minutes
+        #    -> verify Longhorn readiness
+        # 3. HashiCorp Vault
+        # 4. Monitoring
+        # 5. Argo CD
+        # 6. Stakater Reloader
+        # 7. Istio + Gateway API + MetalLB
+        # 8. Kiali Operator + Kiali
+        # 9. Keycloak Operator + PostgreSQL
         # 10. Harbor private registry
         # 11. Velero + MinIO
         #
         # Browser-facing components installed before Istio are reconciled by
         # publish.ps1 all immediately after the shared Gateway is installed.
 
-        $Stage2Components = @(
+        foreach ($item in @(
             "cert-manager",
             "longhorn",
             "vault",
@@ -157,9 +129,7 @@ try {
             "keycloak",
             "harbor",
             "velero"
-        )
-
-        foreach ($item in $Stage2Components) {
+        )) {
 
             Invoke-Stage2Component $item
 
@@ -167,24 +137,15 @@ try {
             # Longhorn initialization wait
             # ------------------------------------------------------------
             #
-            # Longhorn can require additional time after Helm installation
-            # while managers, drivers, CSI components and supporting pods
-            # initialize across all K3s nodes.
-            #
-            # When deploying ALL Stage 2 components:
-            #
-            #   1. Longhorn is installed.
-            #   2. Wait exactly 20 minutes.
-            #   3. Verify Longhorn deployments are Available.
-            #   4. Continue with Vault and the remaining components.
-            #
-            # This delay applies only to:
+            # Only when running:
             #
             #   .\scripts\deploy.ps1 all
             #
-            # It does NOT apply to:
+            # After Longhorn finishes:
             #
-            #   .\scripts\deploy.ps1 longhorn
+            #   1. Wait 20 minutes.
+            #   2. Verify all Longhorn deployments are Available.
+            #   3. Continue with Vault only when the readiness check passes.
             #
             if ($item -eq "longhorn") {
 
@@ -197,14 +158,11 @@ try {
                 Write-Host "Longhorn installation completed." -ForegroundColor Green
                 Write-Host "Waiting 20 minutes for Longhorn to fully initialize..." -ForegroundColor Yellow
                 Write-Host "Wait duration: 1200 seconds" -ForegroundColor DarkGray
-                Write-Host ""
 
                 Start-Sleep -Seconds 1200
 
                 Write-Host ""
                 Write-Host "20-minute Longhorn initialization wait completed." -ForegroundColor Green
-
-                Write-Host ""
                 Write-Host "Checking Longhorn deployment readiness..." -ForegroundColor Cyan
 
                 vagrant ssh k3s-master -c "sudo kubectl -n longhorn-system wait --for=condition=Available deployment --all --timeout=300s"
@@ -230,17 +188,6 @@ try {
                 }
 
                 Write-Host ""
-                Write-Host "Longhorn deployment readiness check passed." -ForegroundColor Green
-
-                Write-Host ""
-                Write-Host "Current Longhorn pods:" -ForegroundColor Cyan
-                vagrant ssh k3s-master -c "sudo kubectl -n longhorn-system get pods -o wide"
-
-                if ($LASTEXITCODE -ne 0) {
-                    throw "Unable to retrieve Longhorn pod status after readiness verification."
-                }
-
-                Write-Host ""
                 Write-Host "Longhorn is Ready." -ForegroundColor Green
                 Write-Host "Continuing Stage 2 deployment with Vault..." -ForegroundColor Green
                 Write-Host ""
@@ -248,21 +195,13 @@ try {
         }
     }
     else {
-
-        # Deploy only the requested component.
-        #
-        # The 20-minute Longhorn delay is intentionally NOT applied when
-        # Longhorn is deployed individually.
         Invoke-Stage2Component $Component
     }
 
     Write-Host ""
-    Write-Host "====================================================" -ForegroundColor Green
-    Write-Host " STAGE 2 DEPLOYMENT COMPLETED" -ForegroundColor Green
-    Write-Host "====================================================" -ForegroundColor Green
+    Write-Host "Stage 2 deployment completed." -ForegroundColor Green
 
-    Write-Host ""
-    Write-Host "Status:" -ForegroundColor Cyan
+    Write-Host "Status:"
     Write-Host "  .\scripts\deployment-status.ps1 $Component"
 }
 finally {
