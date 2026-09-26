@@ -376,6 +376,28 @@ test_resolve_canonical_lvm_partition() {
   rm -rf "${temp_dir}"
 }
 
+test_ambiguous_canonical_lvm_path_fails_closed() {
+  local temp_dir sys_root bin_dir
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+
+  if PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/vg/root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_LVS_LV_PATH=$'vg/root\nvg/other' \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem' >/dev/null 2>&1; then
+    fail "expected grow_root_filesystem to fail when canonical LVM lookup is ambiguous"
+  fi
+
+  rm -rf "${temp_dir}"
+}
+
 test_grow_lvm_ext_root_resizes_logical_volume() {
   local temp_dir sys_root bin_dir pvresize_log lvextend_log resize_log output
   temp_dir="$(mktemp -d)"
@@ -873,6 +895,7 @@ test_grow_nvme_root_uses_parent_disk_path() {
 test_resolve_direct_partition
 test_resolve_lvm_partition
 test_resolve_canonical_lvm_partition
+test_ambiguous_canonical_lvm_path_fails_closed
 test_grow_lvm_ext_root_resizes_logical_volume
 test_lvm_no_free_space_still_resizes_ext_filesystem
 test_direct_partition_growpart_nochange_still_resizes_ext_filesystem

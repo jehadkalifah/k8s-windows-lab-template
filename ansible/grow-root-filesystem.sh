@@ -129,7 +129,10 @@ read_lvm_value() {
 
 resolve_lvm_logical_volume_path() {
   local root_source="$1"
+  local raw_output=""
   local lv_path=""
+  local line=""
+  local lv_path_count=0
   local command_status=0
   local had_errexit=0
 
@@ -139,13 +142,19 @@ resolve_lvm_logical_volume_path() {
       set +e
       ;;
   esac
-  lv_path="$(lvs --noheadings -o vg_name,lv_name --separator / "${root_source}" 2>/dev/null)"
+  raw_output="$(lvs --noheadings -o vg_name,lv_name --separator / "${root_source}" 2>/dev/null)"
   command_status=$?
   if [ "${had_errexit}" -eq 1 ]; then
     set -e
   fi
-  lv_path="${lv_path//[[:space:]]/}"
-  if [ "${command_status}" -eq 0 ] && [ -n "${lv_path}" ]; then
+  while IFS= read -r line; do
+    line="${line//[[:space:]]/}"
+    if [ -n "${line}" ]; then
+      lv_path="${line}"
+      lv_path_count=$((lv_path_count + 1))
+    fi
+  done <<<"${raw_output}"
+  if [ "${command_status}" -eq 0 ] && [ "${lv_path_count}" -eq 1 ] && [ -n "${lv_path}" ]; then
     printf '/dev/%s\n' "${lv_path}"
     return 0
   fi
@@ -358,7 +367,10 @@ grow_root_filesystem() {
   fi
 
   if [ "${root_is_lvm}" -eq 1 ]; then
-    filesystem_resize_source="$(resolve_lvm_logical_volume_path "${root_source}" || printf '%s\n' "${root_source}")"
+    if ! filesystem_resize_source="$(resolve_lvm_logical_volume_path "${root_source}")"; then
+      echo "Skipping root disk growth: unable to resolve a unique logical volume for ${root_source}."
+      return 1
+    fi
     pvresize_root_partition "${partition_device}"
     lvextend_root_volume "${filesystem_resize_source}"
   fi
