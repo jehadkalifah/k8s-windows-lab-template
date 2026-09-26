@@ -47,7 +47,11 @@ cat >"${target_dir}/lvs" <<'INNER'
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name" ]; then
-  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg-root}"
+  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg}"
+  exit "${MOCK_LVS_STATUS:-0}"
+fi
+if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name,lv_name" ] && [ "${4:-}" = "--separator" ] && [ "${5:-}" = "/" ]; then
+  printf '%s\n' "${MOCK_LVS_LV_PATH:-vg/root}"
   exit "${MOCK_LVS_STATUS:-0}"
 fi
 if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
@@ -382,8 +386,8 @@ test_grow_lvm_ext_root_resizes_logical_volume() {
 
   grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output to be printed"
   [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run on /dev/sda3"
-  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to target the root logical volume"
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run on /dev/mapper/vg-root"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/vg/root" ] || fail "expected lvextend to target the canonical root logical volume"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to run on the canonical root logical volume"
 
   rm -rf "${temp_dir}"
 }
@@ -417,7 +421,7 @@ test_lvm_no_free_space_still_resizes_ext_filesystem() {
 
   grep -q 'NOCHANGE: partition already fills the available space' <<<"${output}" || fail "expected NOCHANGE output to be printed"
   [ ! -f "${temp_dir}/lvextend.log" ] || fail "expected lvextend to be skipped when the volume group has no free space"
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to still run after growpart NOCHANGE"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to still run after growpart NOCHANGE"
 
   rm -rf "${temp_dir}"
 }
@@ -501,7 +505,7 @@ test_pvresize_failure_is_tolerated_when_pv_matches_device_after_retry_check() {
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
   )"
 
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run when pvresize failure is recovered by the post-check"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to run when pvresize failure is recovered by the post-check"
   [ -z "$(cat "${pv_size_file}")" ] || fail "expected both pv_size sequence values to be consumed"
   grep -q 'Physical volume "/dev/sda3" changed' <<<"${output}" || fail "expected pvresize output to be printed for the recovered failure path"
 
@@ -561,7 +565,7 @@ test_lvextend_failure_is_tolerated_when_vg_free_is_zero_after_retry_check() {
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
   )"
 
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run when lvextend failure is recovered by the post-check"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to run when lvextend failure is recovered by the post-check"
   [ -z "$(cat "${vg_free_file}")" ] || fail "expected both vg_free sequence values to be consumed"
   grep -q 'Logical volume successfully resized.' <<<"${output}" || fail "expected lvextend output to be printed for the recovered failure path"
 
@@ -655,7 +659,7 @@ test_installs_missing_ext_tools() {
   grep -q 'update' "${apt_log}" || fail "expected apt-get update for missing ext tools"
   grep -q 'install -y cloud-guest-utils e2fsprogs' "${apt_log}" || fail "expected ext tool packages to be installed"
   grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after ext tool install"
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run after installing ext tools"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to run after installing ext tools"
 
   rm -rf "${temp_dir}"
 }
@@ -729,8 +733,8 @@ test_installs_missing_lvm_tools() {
   [ "${update_count}" = "1" ] || fail "expected exactly one apt-get update when installing lvm2"
   grep -q 'install -y lvm2' "${apt_log}" || fail "expected lvm2 to be installed when LVM tools are missing"
   [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run after installing lvm2"
-  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to run after installing lvm2"
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run after installing lvm2"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/vg/root" ] || fail "expected lvextend to run after installing lvm2"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to run after installing lvm2"
   grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after lvm tool install"
 
   rm -rf "${temp_dir}"
@@ -770,7 +774,7 @@ test_installs_missing_lvm_and_xfs_tools() {
 
   grep -q 'install -y lvm2 xfsprogs' "${apt_log}" || fail "expected lvm2 and xfsprogs to be installed together for LVM-backed xfs roots"
   [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run after installing lvm2 for xfs roots"
-  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to run after installing lvm2 for xfs roots"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/vg/root" ] || fail "expected lvextend to run after installing lvm2 for xfs roots"
   [ "$(cat "${xfs_log}")" = "/" ] || fail "expected xfs_growfs to run after installing xfsprogs"
   grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after installing lvm and xfs tools"
 
@@ -811,8 +815,8 @@ test_installs_lvm2_for_partial_lvm_toolchain() {
 
   grep -q 'install -y lvm2' "${apt_log}" || fail "expected lvm2 to be installed when lvextend is missing"
   [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run after repairing the LVM toolchain"
-  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to run after repairing the LVM toolchain"
-  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run after repairing the LVM toolchain"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/vg/root" ] || fail "expected lvextend to run after repairing the LVM toolchain"
+  [ "$(cat "${resize_log}")" = "/dev/vg/root" ] || fail "expected resize2fs to run after repairing the LVM toolchain"
   grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after partial lvm tool install"
 
   rm -rf "${temp_dir}"

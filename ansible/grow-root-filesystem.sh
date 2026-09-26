@@ -111,10 +111,39 @@ read_lvm_value() {
   return "${command_status}"
 }
 
+resolve_lvm_logical_volume_path() {
+  local root_source="$1"
+  local lv_path=""
+  local command_status=0
+  local had_errexit=0
+
+  case $- in
+    *e*)
+      had_errexit=1
+      set +e
+      ;;
+  esac
+  lv_path="$(lvs --noheadings -o vg_name,lv_name --separator / "${root_source}" 2>/dev/null)"
+  command_status=$?
+  if [ "${had_errexit}" -eq 1 ]; then
+    set -e
+  fi
+  lv_path="${lv_path//[[:space:]]/}"
+  if [ "${command_status}" -eq 0 ] && [ -n "${lv_path}" ]; then
+    printf '/dev/%s\n' "${lv_path}"
+    return 0
+  fi
+
+  return "${command_status}"
+}
+
 read_block_device_size_bytes() {
   local device_name="$1"
   local size_in_sectors=""
 
+  # Linux exposes /sys/class/block/*/size in 512-byte units regardless of the
+  # device's logical sector size, so multiply by 512 to compare against LVM's
+  # byte-based size reports.
   size_in_sectors="$(cat "${SYS_CLASS_BLOCK_ROOT}/${device_name}/size" 2>/dev/null || true)"
   size_in_sectors="${size_in_sectors//[[:space:]]/}"
   if [[ "${size_in_sectors}" =~ ^[0-9]+$ ]]; then
@@ -181,12 +210,18 @@ pvresize_root_partition() {
 
 lvextend_root_volume() {
   local root_source="$1"
+  local canonical_root_source="$1"
   local root_vg_name=""
   local current_vg_free_bytes=""
   local updated_vg_free_bytes=""
   local command_output=""
   local command_status=0
   local had_errexit=0
+
+  canonical_root_source="$(resolve_lvm_logical_volume_path "${root_source}" || true)"
+  if [ -n "${canonical_root_source}" ]; then
+    root_source="${canonical_root_source}"
+  fi
 
   if root_vg_name="$(read_lvm_value lvs --noheadings -o vg_name "${root_source}")"; then
     if [ -n "${root_vg_name}" ] &&
@@ -227,6 +262,7 @@ lvextend_root_volume() {
 
 grow_root_filesystem() {
   local root_source root_fs partition_device partition_device_name partition_number parent_disk_name parent_disk_device
+  local filesystem_resize_source=""
   local root_is_lvm=0
   local growpart_output=""
   local growpart_status=0
@@ -254,6 +290,7 @@ grow_root_filesystem() {
   fi
 
   parent_disk_device="/dev/${parent_disk_name}"
+  filesystem_resize_source="${root_source}"
 
   if is_lvm_root_source "${root_source}"; then
     root_is_lvm=1
@@ -301,13 +338,14 @@ grow_root_filesystem() {
   fi
 
   if [ "${root_is_lvm}" -eq 1 ]; then
+    filesystem_resize_source="$(resolve_lvm_logical_volume_path "${root_source}" || printf '%s\n' "${root_source}")"
     pvresize_root_partition "${partition_device}"
-    lvextend_root_volume "${root_source}"
+    lvextend_root_volume "${filesystem_resize_source}"
   fi
 
   case "${root_fs}" in
     ext2|ext3|ext4)
-      resize2fs "${root_source}"
+      resize2fs "${filesystem_resize_source}"
       ;;
     xfs)
       had_errexit=0
