@@ -150,6 +150,10 @@ resolve_lvm_logical_volume_path() {
     return 0
   fi
 
+  if [ "${command_status}" -eq 0 ]; then
+    return 1
+  fi
+
   return "${command_status}"
 }
 
