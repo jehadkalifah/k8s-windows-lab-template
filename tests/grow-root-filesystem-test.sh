@@ -736,6 +736,47 @@ test_installs_missing_lvm_tools() {
   rm -rf "${temp_dir}"
 }
 
+test_installs_missing_lvm_and_xfs_tools() {
+  local temp_dir sys_root bin_dir apt_log pvresize_log lvextend_log xfs_log output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  apt_log="${temp_dir}/apt.log"
+  pvresize_log="${temp_dir}/pvresize.log"
+  lvextend_log="${temp_dir}/lvextend.log"
+  xfs_log="${temp_dir}/xfs_growfs.log"
+
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+  rm -f "${bin_dir}/lvs" "${bin_dir}/pvs" "${bin_dir}/vgs" "${bin_dir}/pvresize" "${bin_dir}/lvextend" "${bin_dir}/xfs_growfs" "${bin_dir}/readlink"
+
+  output="$(
+    PATH="${bin_dir}" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_BIN_DIR="${bin_dir}" \
+    MOCK_APT_LOG="${apt_log}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="xfs" \
+    MOCK_PVS_PV_SIZE="1073741824" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE="1073741824" \
+    MOCK_PVRESIZE_LOG="${pvresize_log}" \
+    MOCK_LVEXTEND_LOG="${lvextend_log}" \
+    MOCK_XFS_GROWFS_LOG="${xfs_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'install -y lvm2 xfsprogs' "${apt_log}" || fail "expected lvm2 and xfsprogs to be installed together for LVM-backed xfs roots"
+  [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run after installing lvm2 for xfs roots"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to run after installing lvm2 for xfs roots"
+  [ "$(cat "${xfs_log}")" = "/" ] || fail "expected xfs_growfs to run after installing xfsprogs"
+  grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after installing lvm and xfs tools"
+
+  rm -rf "${temp_dir}"
+}
+
 test_installs_lvm2_for_partial_lvm_toolchain() {
   local temp_dir sys_root bin_dir apt_log pvresize_log lvextend_log resize_log output
   temp_dir="$(mktemp -d)"
@@ -819,6 +860,7 @@ test_xfs_nochange_does_not_fail
 test_installs_missing_ext_tools
 test_installs_missing_xfs_tool
 test_installs_missing_lvm_tools
+test_installs_missing_lvm_and_xfs_tools
 test_installs_lvm2_for_partial_lvm_toolchain
 test_grow_nvme_root_uses_parent_disk_path
 
