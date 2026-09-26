@@ -106,6 +106,43 @@ printf '%s\n' "${MOCK_GROWPART_OUTPUT:-CHANGED: disk expanded}"
 exit "${MOCK_GROWPART_STATUS:-0}"
 EOF
 
+  cat >"${bin_dir}/lvs" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_LVS_OUTPUT}"
+fi
+exit "${MOCK_LVS_STATUS:-0}"
+EOF
+
+  cat >"${bin_dir}/pvresize" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_PVRESIZE_LOG:-}" ]; then
+  printf '%s\n' "$1" >"${MOCK_PVRESIZE_LOG}"
+fi
+if [ -n "${MOCK_PVRESIZE_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_PVRESIZE_OUTPUT}"
+else
+  printf '%s\n' 'Physical volume "/dev/sda3" changed'
+fi
+exit "${MOCK_PVRESIZE_STATUS:-0}"
+EOF
+
+  cat >"${bin_dir}/lvextend" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_LVEXTEND_LOG:-}" ]; then
+  printf '%s\n' "$*" >"${MOCK_LVEXTEND_LOG}"
+fi
+if [ -n "${MOCK_LVEXTEND_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_LVEXTEND_OUTPUT}"
+else
+  printf '%s\n' 'Logical volume successfully resized.'
+fi
+exit "${MOCK_LVEXTEND_STATUS:-0}"
+EOF
+
   cat >"${bin_dir}/resize2fs" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -145,6 +182,45 @@ printf '%s\n' "${MOCK_GROWPART_OUTPUT:-CHANGED: disk expanded}"
 exit "${MOCK_GROWPART_STATUS:-0}"
 INNER
         /bin/chmod +x "${MOCK_BIN_DIR}/growpart"
+        ;;
+      lvm2)
+        /bin/cat >"${MOCK_BIN_DIR}/lvs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_LVS_OUTPUT}"
+fi
+exit "${MOCK_LVS_STATUS:-0}"
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/lvs"
+        /bin/cat >"${MOCK_BIN_DIR}/pvresize" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_PVRESIZE_LOG:-}" ]; then
+  printf '%s\n' "$1" >"${MOCK_PVRESIZE_LOG}"
+fi
+if [ -n "${MOCK_PVRESIZE_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_PVRESIZE_OUTPUT}"
+else
+  printf '%s\n' 'Physical volume "/dev/sda3" changed'
+fi
+exit "${MOCK_PVRESIZE_STATUS:-0}"
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/pvresize"
+        /bin/cat >"${MOCK_BIN_DIR}/lvextend" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_LVEXTEND_LOG:-}" ]; then
+  printf '%s\n' "$*" >"${MOCK_LVEXTEND_LOG}"
+fi
+if [ -n "${MOCK_LVEXTEND_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_LVEXTEND_OUTPUT}"
+else
+  printf '%s\n' 'Logical volume successfully resized.'
+fi
+exit "${MOCK_LVEXTEND_STATUS:-0}"
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/lvextend"
         ;;
       e2fsprogs)
         /bin/cat >"${MOCK_BIN_DIR}/resize2fs" <<'INNER'
@@ -214,10 +290,12 @@ test_resolve_lvm_partition() {
 }
 
 test_grow_lvm_ext_root_resizes_logical_volume() {
-  local temp_dir sys_root bin_dir resize_log output
+  local temp_dir sys_root bin_dir pvresize_log lvextend_log resize_log output
   temp_dir="$(mktemp -d)"
   sys_root="${temp_dir}/sys/class/block"
   bin_dir="${temp_dir}/bin"
+  pvresize_log="${temp_dir}/pvresize.log"
+  lvextend_log="${temp_dir}/lvextend.log"
   resize_log="${temp_dir}/resize2fs.log"
 
   mkdir -p "${sys_root}/dm-0/slaves"
@@ -230,17 +308,21 @@ test_grow_lvm_ext_root_resizes_logical_volume() {
     SYS_CLASS_BLOCK_ROOT="${sys_root}" \
     MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
     MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVRESIZE_LOG="${pvresize_log}" \
+    MOCK_LVEXTEND_LOG="${lvextend_log}" \
     MOCK_RESIZE2FS_LOG="${resize_log}" \
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
   )"
 
   grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output to be printed"
+  [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run on /dev/sda3"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to target the root logical volume"
   [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run on /dev/mapper/vg-root"
 
   rm -rf "${temp_dir}"
 }
 
-test_growpart_nochange_still_resizes_ext_filesystem() {
+test_lvm_no_free_space_still_resizes_ext_filesystem() {
   local temp_dir sys_root bin_dir resize_log output
   temp_dir="$(mktemp -d)"
   sys_root="${temp_dir}/sys/class/block"
@@ -260,10 +342,13 @@ test_growpart_nochange_still_resizes_ext_filesystem() {
     MOCK_RESIZE2FS_LOG="${resize_log}" \
     MOCK_GROWPART_OUTPUT="NOCHANGE: partition already fills the available space" \
     MOCK_GROWPART_STATUS="0" \
+    MOCK_LVEXTEND_OUTPUT="Insufficient free space: 0 extents needed, but only 0 available" \
+    MOCK_LVEXTEND_STATUS="5" \
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
   )"
 
   grep -q 'NOCHANGE: partition already fills the available space' <<<"${output}" || fail "expected NOCHANGE output to be printed"
+  grep -q 'Insufficient free space: 0 extents needed, but only 0 available' <<<"${output}" || fail "expected lvextend no-free-space output to be printed"
   [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to still run after growpart NOCHANGE"
 
   rm -rf "${temp_dir}"
@@ -393,6 +478,46 @@ test_installs_missing_xfs_tool() {
   rm -rf "${temp_dir}"
 }
 
+test_installs_missing_lvm_tools() {
+  local temp_dir sys_root bin_dir apt_log pvresize_log lvextend_log resize_log output update_count
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  apt_log="${temp_dir}/apt.log"
+  pvresize_log="${temp_dir}/pvresize.log"
+  lvextend_log="${temp_dir}/lvextend.log"
+  resize_log="${temp_dir}/resize2fs.log"
+
+  mkdir -p "${sys_root}/dm-0/slaves"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+  rm -f "${bin_dir}/lvs" "${bin_dir}/pvresize" "${bin_dir}/lvextend"
+
+  output="$(
+    PATH="${bin_dir}" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_BIN_DIR="${bin_dir}" \
+    MOCK_APT_LOG="${apt_log}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVRESIZE_LOG="${pvresize_log}" \
+    MOCK_LVEXTEND_LOG="${lvextend_log}" \
+    MOCK_RESIZE2FS_LOG="${resize_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  update_count="$(grep -c '^update$' "${apt_log}")"
+  [ "${update_count}" = "1" ] || fail "expected exactly one apt-get update when installing lvm2"
+  grep -q 'install -y lvm2' "${apt_log}" || fail "expected lvm2 to be installed when LVM tools are missing"
+  [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run after installing lvm2"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to run after installing lvm2"
+  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run after installing lvm2"
+  grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after lvm tool install"
+
+  rm -rf "${temp_dir}"
+}
+
 test_grow_nvme_root_uses_parent_disk_path() {
   local temp_dir sys_root bin_dir growpart_log output
   temp_dir="$(mktemp -d)"
@@ -424,11 +549,12 @@ test_grow_nvme_root_uses_parent_disk_path() {
 test_resolve_direct_partition
 test_resolve_lvm_partition
 test_grow_lvm_ext_root_resizes_logical_volume
-test_growpart_nochange_still_resizes_ext_filesystem
+test_lvm_no_free_space_still_resizes_ext_filesystem
 test_grow_xfs_root_uses_xfs_growfs
 test_xfs_nochange_does_not_fail
 test_installs_missing_ext_tools
 test_installs_missing_xfs_tool
+test_installs_missing_lvm_tools
 test_grow_nvme_root_uses_parent_disk_path
 
 echo "PASS: grow-root-filesystem helper"

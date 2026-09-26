@@ -23,8 +23,51 @@ resolve_backing_partition_device() {
   printf '/dev/%s\n' "${current_device_name}"
 }
 
+is_lvm_root_source() {
+  local root_source="$1"
+
+  if command -v lvs >/dev/null 2>&1 && lvs "${root_source}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  [[ "${root_source}" == /dev/mapper/* ]] && [ "${root_source}" != "/dev/mapper/control" ]
+}
+
+pvresize_root_partition() {
+  local partition_device="$1"
+  local command_output=""
+  local command_status=0
+
+  set +e
+  command_output="$(pvresize "${partition_device}" 2>&1)"
+  command_status=$?
+  set -e
+  printf '%s\n' "${command_output}"
+
+  if [ "${command_status}" -ne 0 ] && ! printf '%s\n' "${command_output}" | grep -Eiq 'not resized|already|no change|unchanged|0 physical volume\(s\) resized'; then
+    return "${command_status}"
+  fi
+}
+
+lvextend_root_volume() {
+  local root_source="$1"
+  local command_output=""
+  local command_status=0
+
+  set +e
+  command_output="$(lvextend -l +100%FREE "${root_source}" 2>&1)"
+  command_status=$?
+  set -e
+  printf '%s\n' "${command_output}"
+
+  if [ "${command_status}" -ne 0 ] && ! printf '%s\n' "${command_output}" | grep -Eiq 'matches existing size|insufficient free space|no free space|unchanged|already'; then
+    return "${command_status}"
+  fi
+}
+
 grow_root_filesystem() {
   local root_source root_fs partition_device partition_device_name partition_sysfs_path partition_number parent_disk_name parent_disk_device
+  local root_is_lvm=0
   local growpart_output=""
   local growpart_status=0
   local -a required_packages=()
@@ -51,6 +94,13 @@ grow_root_filesystem() {
   fi
 
   parent_disk_device="/dev/${parent_disk_name}"
+
+  if is_lvm_root_source "${root_source}"; then
+    root_is_lvm=1
+    if ! command -v lvs >/dev/null 2>&1 || ! command -v pvresize >/dev/null 2>&1 || ! command -v lvextend >/dev/null 2>&1; then
+      required_packages+=(lvm2)
+    fi
+  fi
 
   if ! command -v growpart >/dev/null 2>&1; then
     required_packages+=(cloud-guest-utils)
@@ -81,6 +131,11 @@ grow_root_filesystem() {
 
   if [ "${growpart_status}" -ne 0 ]; then
     return "${growpart_status}"
+  fi
+
+  if [ "${root_is_lvm}" -eq 1 ]; then
+    pvresize_root_partition "${partition_device}"
+    lvextend_root_volume "${root_source}"
   fi
 
   case "${root_fs}" in
