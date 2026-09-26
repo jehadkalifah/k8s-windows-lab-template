@@ -14,11 +14,13 @@ create_partition_sysfs() {
   local partition_name="$2"
   local parent_disk_name="$3"
   local partition_number="$4"
+  local partition_size_sectors="${5:-4194304}"
   local sys_root="${temp_dir}/sys/class/block"
   local backing_partition_dir="${temp_dir}/devices/block/${parent_disk_name}/${partition_name}"
 
   mkdir -p "${backing_partition_dir}"
   printf '%s\n' "${partition_number}" >"${backing_partition_dir}/partition"
+  printf '%s\n' "${partition_size_sectors}" >"${backing_partition_dir}/size"
   ln -sfn "${backing_partition_dir}" "${sys_root}/${partition_name}"
 }
 
@@ -388,6 +390,34 @@ test_lvm_no_free_space_still_resizes_ext_filesystem() {
   rm -rf "${temp_dir}"
 }
 
+test_direct_partition_growpart_nochange_still_resizes_ext_filesystem() {
+  local temp_dir sys_root bin_dir resize_log output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  resize_log="${temp_dir}/resize2fs.log"
+
+  mkdir -p "${sys_root}"
+  create_partition_sysfs "${temp_dir}" "sda1" "sda" "1"
+  make_mock_bin "${bin_dir}"
+
+  output="$(
+    PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/sda1" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_RESIZE2FS_LOG="${resize_log}" \
+    MOCK_GROWPART_OUTPUT="NOCHANGE: partition already fills the available space" \
+    MOCK_GROWPART_STATUS="0" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'NOCHANGE: partition already fills the available space' <<<"${output}" || fail "expected NOCHANGE output to be printed for direct partitions"
+  [ "$(cat "${resize_log}")" = "/dev/sda1" ] || fail "expected resize2fs to still run for direct partitions after growpart NOCHANGE"
+
+  rm -rf "${temp_dir}"
+}
+
 test_pvresize_failure_still_fails_when_pv_does_not_grow() {
   local temp_dir sys_root bin_dir
   temp_dir="$(mktemp -d)"
@@ -680,6 +710,7 @@ test_resolve_direct_partition
 test_resolve_lvm_partition
 test_grow_lvm_ext_root_resizes_logical_volume
 test_lvm_no_free_space_still_resizes_ext_filesystem
+test_direct_partition_growpart_nochange_still_resizes_ext_filesystem
 test_pvresize_failure_still_fails_when_pv_does_not_grow
 test_lvextend_failure_still_fails_when_vg_free_remains
 test_grow_xfs_root_uses_xfs_growfs

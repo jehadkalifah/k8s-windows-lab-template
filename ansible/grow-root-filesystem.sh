@@ -111,18 +111,34 @@ read_lvm_value() {
   return "${command_status}"
 }
 
+read_block_device_size_bytes() {
+  local device_name="$1"
+  local size_in_sectors=""
+
+  size_in_sectors="$(cat "${SYS_CLASS_BLOCK_ROOT}/${device_name}/size" 2>/dev/null || true)"
+  size_in_sectors="${size_in_sectors//[[:space:]]/}"
+  if [[ "${size_in_sectors}" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$((size_in_sectors * 512))"
+    return 0
+  fi
+
+  return 1
+}
+
 pvresize_root_partition() {
   local partition_device="$1"
+  local partition_device_name=""
   local current_pv_size_bytes=""
-  local current_dev_size_bytes=""
+  local current_partition_size_bytes=""
   local updated_pv_size_bytes=""
   local command_output=""
   local command_status=0
   local had_errexit=0
 
+  partition_device_name="${partition_device##*/}"
   if current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")" &&
-    current_dev_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o dev_size "${partition_device}")"; then
-    if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
+    current_partition_size_bytes="$(read_block_device_size_bytes "${partition_device_name}")"; then
+    if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_partition_size_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_partition_size_bytes}" ]; then
       return 0
     fi
   fi
@@ -145,7 +161,7 @@ pvresize_root_partition() {
   fi
 
   if updated_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"; then
-    if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
+    if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_partition_size_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_partition_size_bytes}" ]; then
       return 0
     fi
   fi
