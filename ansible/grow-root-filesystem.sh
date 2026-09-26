@@ -90,17 +90,10 @@ is_lvm_root_source() {
   return 1
 }
 
-root_source_uses_device_mapper() {
-  local root_source="$1"
-  local root_device_name
-
-  root_device_name="$(resolve_block_device_name "${root_source}")"
-  [[ "${root_source}" == /dev/mapper/* ]] || [[ "${root_device_name}" == dm-* ]]
-}
-
 read_lvm_value() {
   local value=""
   local had_errexit=0
+  local command_status=0
 
   case $- in
     *e*)
@@ -109,11 +102,13 @@ read_lvm_value() {
       ;;
   esac
   value="$("$@" 2>/dev/null)"
+  command_status=$?
   if [ "${had_errexit}" -eq 1 ]; then
     set -e
   fi
   value="${value//[[:space:]]/}"
   printf '%s\n' "${value}"
+  return "${command_status}"
 }
 
 pvresize_root_partition() {
@@ -125,10 +120,11 @@ pvresize_root_partition() {
   local command_status=0
   local had_errexit=0
 
-  current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"
-  current_dev_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o dev_size "${partition_device}")"
-  if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
-    return 0
+  if current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")" &&
+    current_dev_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o dev_size "${partition_device}")"; then
+    if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
+      return 0
+    fi
   fi
 
   case $- in
@@ -148,9 +144,10 @@ pvresize_root_partition() {
     return 0
   fi
 
-  updated_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"
-  if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
-    return 0
+  if updated_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"; then
+    if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
+      return 0
+    fi
   fi
 
   if [ "${command_status}" -ne 0 ]; then
@@ -167,10 +164,10 @@ lvextend_root_volume() {
   local command_status=0
   local had_errexit=0
 
-  root_vg_name="$(read_lvm_value lvs --noheadings -o vg_name "${root_source}")"
-  if [ -n "${root_vg_name}" ]; then
-    current_vg_free_bytes="$(read_lvm_value vgs --noheadings --units b --nosuffix -o vg_free "${root_vg_name}")"
-    if [ -n "${current_vg_free_bytes}" ] && [ "${current_vg_free_bytes}" -eq 0 ]; then
+  if root_vg_name="$(read_lvm_value lvs --noheadings -o vg_name "${root_source}")"; then
+    if [ -n "${root_vg_name}" ] &&
+      current_vg_free_bytes="$(read_lvm_value vgs --noheadings --units b --nosuffix -o vg_free "${root_vg_name}")" &&
+      [ -n "${current_vg_free_bytes}" ] && [ "${current_vg_free_bytes}" -eq 0 ]; then
       return 0
     fi
   fi
@@ -192,8 +189,8 @@ lvextend_root_volume() {
     return 0
   fi
 
-  if [ -n "${root_vg_name}" ]; then
-    updated_vg_free_bytes="$(read_lvm_value vgs --noheadings --units b --nosuffix -o vg_free "${root_vg_name}")"
+  if [ -n "${root_vg_name}" ] &&
+    updated_vg_free_bytes="$(read_lvm_value vgs --noheadings --units b --nosuffix -o vg_free "${root_vg_name}")"; then
     if [ -n "${updated_vg_free_bytes}" ] && [ "${updated_vg_free_bytes}" -eq 0 ]; then
       return 0
     fi
@@ -207,7 +204,6 @@ lvextend_root_volume() {
 grow_root_filesystem() {
   local root_source root_fs partition_device partition_device_name partition_number parent_disk_name parent_disk_device
   local root_is_lvm=0
-  local root_uses_device_mapper=0
   local growpart_output=""
   local growpart_status=0
   local had_errexit=0
@@ -235,8 +231,8 @@ grow_root_filesystem() {
 
   parent_disk_device="/dev/${parent_disk_name}"
 
-  if root_source_uses_device_mapper "${root_source}"; then
-    root_uses_device_mapper=1
+  if is_lvm_root_source "${root_source}"; then
+    root_is_lvm=1
     if ! command -v lvs >/dev/null 2>&1 || ! command -v pvs >/dev/null 2>&1 || ! command -v vgs >/dev/null 2>&1 || ! command -v pvresize >/dev/null 2>&1 || ! command -v lvextend >/dev/null 2>&1; then
       required_packages+=(lvm2)
     fi
@@ -261,10 +257,6 @@ grow_root_filesystem() {
       apt-get update
     fi
     apt-get install -y "${required_packages[@]}"
-  fi
-
-  if [ "${root_uses_device_mapper}" -eq 1 ] && is_lvm_root_source "${root_source}"; then
-    root_is_lvm=1
   fi
 
   case $- in
