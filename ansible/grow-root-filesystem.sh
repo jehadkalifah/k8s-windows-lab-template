@@ -36,10 +36,6 @@ is_lvm_root_source() {
     fi
   fi
 
-  if command -v lvs >/dev/null 2>&1 && lvs "${root_source}" >/dev/null 2>&1; then
-    return 0
-  fi
-
   return 1
 }
 

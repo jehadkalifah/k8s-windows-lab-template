@@ -442,6 +442,57 @@ test_lvm_no_free_space_still_resizes_ext_filesystem() {
   rm -rf "${temp_dir}"
 }
 
+test_pvresize_failure_still_fails_when_pv_does_not_grow() {
+  local temp_dir sys_root bin_dir
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+
+  if PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE="1073741824" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_PVRESIZE_STATUS="5" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem' >/dev/null 2>&1; then
+    fail "expected grow_root_filesystem to fail when pvresize fails without changing the PV size"
+  fi
+
+  rm -rf "${temp_dir}"
+}
+
+test_lvextend_failure_still_fails_when_vg_free_remains() {
+  local temp_dir sys_root bin_dir
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+
+  if PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE="2147483648" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE="1073741824" \
+    MOCK_LVEXTEND_STATUS="5" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem' >/dev/null 2>&1; then
+    fail "expected grow_root_filesystem to fail when lvextend fails without consuming free extents"
+  fi
+
+  rm -rf "${temp_dir}"
+}
+
 test_grow_xfs_root_uses_xfs_growfs() {
   local temp_dir sys_root bin_dir xfs_log output
   temp_dir="$(mktemp -d)"
@@ -682,6 +733,8 @@ test_resolve_direct_partition
 test_resolve_lvm_partition
 test_grow_lvm_ext_root_resizes_logical_volume
 test_lvm_no_free_space_still_resizes_ext_filesystem
+test_pvresize_failure_still_fails_when_pv_does_not_grow
+test_lvextend_failure_still_fails_when_vg_free_remains
 test_grow_xfs_root_uses_xfs_growfs
 test_xfs_nochange_does_not_fail
 test_installs_missing_ext_tools
