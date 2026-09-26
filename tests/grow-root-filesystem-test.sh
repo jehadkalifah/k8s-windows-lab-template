@@ -388,11 +388,11 @@ test_ambiguous_canonical_lvm_path_fails_closed() {
 
   if PATH="${bin_dir}:/usr/bin:/bin" \
     SYS_CLASS_BLOCK_ROOT="${sys_root}" \
-    MOCK_FINDMNT_SOURCE="/dev/vg/root" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
     MOCK_FINDMNT_FSTYPE="ext4" \
     MOCK_LVS_LV_PATH=$'vg/root\nvg/other' \
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem' >/dev/null 2>&1; then
-    fail "expected grow_root_filesystem to fail when canonical LVM lookup is ambiguous"
+    fail "expected grow_root_filesystem to fail when mapper-based LVM lookup is ambiguous"
   fi
 
   rm -rf "${temp_dir}"
@@ -752,7 +752,7 @@ test_installs_missing_lvm_tools() {
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
-  rm -f "${bin_dir}/lvs" "${bin_dir}/pvresize" "${bin_dir}/lvextend"
+  rm -f "${bin_dir}/lvs" "${bin_dir}/pvs" "${bin_dir}/vgs" "${bin_dir}/pvresize" "${bin_dir}/lvextend"
   rm -f "${bin_dir}/readlink"
 
   output="$(

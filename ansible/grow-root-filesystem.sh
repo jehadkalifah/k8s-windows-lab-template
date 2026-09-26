@@ -133,8 +133,17 @@ resolve_lvm_logical_volume_path() {
   local lv_path=""
   local line=""
   local lv_path_count=0
+  local root_device_name=""
   local command_status=0
   local had_errexit=0
+
+  if [[ "${root_source}" == /dev/*/* ]] && [[ "${root_source}" != /dev/mapper/* ]]; then
+    root_device_name="$(resolve_block_device_name "${root_source}")"
+    if [[ "${root_device_name}" == dm-* ]]; then
+      printf '%s\n' "${root_source}"
+      return 0
+    fi
+  fi
 
   case $- in
     *e*)
