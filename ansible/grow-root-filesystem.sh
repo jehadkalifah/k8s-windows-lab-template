@@ -25,18 +25,47 @@ resolve_backing_partition_device() {
 
 is_lvm_root_source() {
   local root_source="$1"
+  local root_device_name dm_uuid_path dm_uuid=""
+
+  root_device_name="$(basename "$(readlink -f "${root_source}")")"
+  dm_uuid_path="${SYS_CLASS_BLOCK_ROOT}/${root_device_name}/dm/uuid"
+  if [ -f "${dm_uuid_path}" ]; then
+    dm_uuid="$(cat "${dm_uuid_path}" 2>/dev/null || true)"
+    if [[ "${dm_uuid}" == LVM-* ]]; then
+      return 0
+    fi
+  fi
 
   if command -v lvs >/dev/null 2>&1 && lvs "${root_source}" >/dev/null 2>&1; then
     return 0
   fi
 
-  [[ "${root_source}" == /dev/mapper/* ]] && [ "${root_source}" != "/dev/mapper/control" ]
+  return 1
+}
+
+read_lvm_value() {
+  local value=""
+
+  set +e
+  value="$("$@" 2>/dev/null)"
+  set -e
+  value="${value//[[:space:]]/}"
+  printf '%s\n' "${value}"
 }
 
 pvresize_root_partition() {
   local partition_device="$1"
+  local current_pv_size_bytes=""
+  local current_dev_size_bytes=""
+  local updated_pv_size_bytes=""
   local command_output=""
   local command_status=0
+
+  current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"
+  current_dev_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o dev_size "${partition_device}")"
+  if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
+    return 0
+  fi
 
   set +e
   command_output="$(pvresize "${partition_device}" 2>&1)"
@@ -44,15 +73,35 @@ pvresize_root_partition() {
   set -e
   printf '%s\n' "${command_output}"
 
-  if [ "${command_status}" -ne 0 ] && ! printf '%s\n' "${command_output}" | grep -Eiq 'not resized|already|no change|unchanged|0 physical volume\(s\) resized'; then
+  if [ "${command_status}" -eq 0 ]; then
+    return 0
+  fi
+
+  updated_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"
+  if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_dev_size_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_dev_size_bytes}" ]; then
+    return 0
+  fi
+
+  if [ "${command_status}" -ne 0 ]; then
     return "${command_status}"
   fi
 }
 
 lvextend_root_volume() {
   local root_source="$1"
+  local root_vg_name=""
+  local current_vg_free_bytes=""
+  local updated_vg_free_bytes=""
   local command_output=""
   local command_status=0
+
+  root_vg_name="$(read_lvm_value lvs --noheadings -o vg_name "${root_source}")"
+  if [ -n "${root_vg_name}" ]; then
+    current_vg_free_bytes="$(read_lvm_value vgs --noheadings --units b --nosuffix -o vg_free "${root_vg_name}")"
+    if [ -n "${current_vg_free_bytes}" ] && [ "${current_vg_free_bytes}" -eq 0 ]; then
+      return 0
+    fi
+  fi
 
   set +e
   command_output="$(lvextend -l +100%FREE "${root_source}" 2>&1)"
@@ -60,7 +109,18 @@ lvextend_root_volume() {
   set -e
   printf '%s\n' "${command_output}"
 
-  if [ "${command_status}" -ne 0 ] && ! printf '%s\n' "${command_output}" | grep -Eiq 'matches existing size|insufficient free space|no free space|unchanged|already'; then
+  if [ "${command_status}" -eq 0 ]; then
+    return 0
+  fi
+
+  if [ -n "${root_vg_name}" ]; then
+    updated_vg_free_bytes="$(read_lvm_value vgs --noheadings --units b --nosuffix -o vg_free "${root_vg_name}")"
+    if [ -n "${updated_vg_free_bytes}" ] && [ "${updated_vg_free_bytes}" -eq 0 ]; then
+      return 0
+    fi
+  fi
+
+  if [ "${command_status}" -ne 0 ]; then
     return "${command_status}"
   fi
 }
@@ -97,7 +157,7 @@ grow_root_filesystem() {
 
   if is_lvm_root_source "${root_source}"; then
     root_is_lvm=1
-    if ! command -v lvs >/dev/null 2>&1 || ! command -v pvresize >/dev/null 2>&1 || ! command -v lvextend >/dev/null 2>&1; then
+    if ! command -v lvs >/dev/null 2>&1 || ! command -v pvs >/dev/null 2>&1 || ! command -v vgs >/dev/null 2>&1 || ! command -v pvresize >/dev/null 2>&1 || ! command -v lvextend >/dev/null 2>&1; then
       required_packages+=(lvm2)
     fi
   fi

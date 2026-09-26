@@ -22,6 +22,15 @@ create_partition_sysfs() {
   ln -sfn "${backing_partition_dir}" "${sys_root}/${partition_name}"
 }
 
+create_lvm_dm_sysfs() {
+  local temp_dir="$1"
+  local dm_name="${2:-dm-0}"
+  local sys_root="${temp_dir}/sys/class/block"
+
+  mkdir -p "${sys_root}/${dm_name}/slaves" "${sys_root}/${dm_name}/dm"
+  printf '%s\n' 'LVM-mock' >"${sys_root}/${dm_name}/dm/uuid"
+}
+
 make_mock_bin() {
   local bin_dir="$1"
   mkdir -p "${bin_dir}"
@@ -109,10 +118,47 @@ EOF
   cat >"${bin_dir}/lvs" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name" ]; then
+  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg-root}"
+  exit "${MOCK_LVS_STATUS:-0}"
+fi
 if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
   printf '%s\n' "${MOCK_LVS_OUTPUT}"
 fi
 exit "${MOCK_LVS_STATUS:-0}"
+EOF
+
+  cat >"${bin_dir}/pvs" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    field="$2"
+    break
+  fi
+  shift
+done
+case "${field:-}" in
+  pv_size) printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}" ;;
+  dev_size) printf '%s\n' "${MOCK_PVS_DEV_SIZE:-2147483648}" ;;
+  *) exit 1 ;;
+esac
+EOF
+
+  cat >"${bin_dir}/vgs" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    field="$2"
+    break
+  fi
+  shift
+done
+case "${field:-}" in
+  vg_free) printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}" ;;
+  *) exit 1 ;;
+esac
 EOF
 
   cat >"${bin_dir}/pvresize" <<'EOF'
@@ -187,12 +233,49 @@ INNER
         /bin/cat >"${MOCK_BIN_DIR}/lvs" <<'INNER'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name" ]; then
+  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg-root}"
+  exit "${MOCK_LVS_STATUS:-0}"
+fi
 if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
   printf '%s\n' "${MOCK_LVS_OUTPUT}"
 fi
 exit "${MOCK_LVS_STATUS:-0}"
 INNER
         /bin/chmod +x "${MOCK_BIN_DIR}/lvs"
+        /bin/cat >"${MOCK_BIN_DIR}/pvs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    field="$2"
+    break
+  fi
+  shift
+done
+case "${field:-}" in
+  pv_size) printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}" ;;
+  dev_size) printf '%s\n' "${MOCK_PVS_DEV_SIZE:-2147483648}" ;;
+  *) exit 1 ;;
+esac
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/pvs"
+        /bin/cat >"${MOCK_BIN_DIR}/vgs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    field="$2"
+    break
+  fi
+  shift
+done
+case "${field:-}" in
+  vg_free) printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}" ;;
+  *) exit 1 ;;
+esac
+INNER
+        /bin/chmod +x "${MOCK_BIN_DIR}/vgs"
         /bin/cat >"${MOCK_BIN_DIR}/pvresize" <<'INNER'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -274,7 +357,7 @@ test_resolve_lvm_partition() {
   temp_dir="$(mktemp -d)"
   sys_root="${temp_dir}/sys/class/block"
   bin_dir="${temp_dir}/bin"
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -298,7 +381,7 @@ test_grow_lvm_ext_root_resizes_logical_volume() {
   lvextend_log="${temp_dir}/lvextend.log"
   resize_log="${temp_dir}/resize2fs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -308,6 +391,9 @@ test_grow_lvm_ext_root_resizes_logical_volume() {
     SYS_CLASS_BLOCK_ROOT="${sys_root}" \
     MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
     MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE="1073741824" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE="1073741824" \
     MOCK_PVRESIZE_LOG="${pvresize_log}" \
     MOCK_LVEXTEND_LOG="${lvextend_log}" \
     MOCK_RESIZE2FS_LOG="${resize_log}" \
@@ -329,7 +415,7 @@ test_lvm_no_free_space_still_resizes_ext_filesystem() {
   bin_dir="${temp_dir}/bin"
   resize_log="${temp_dir}/resize2fs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -340,15 +426,17 @@ test_lvm_no_free_space_still_resizes_ext_filesystem() {
     MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
     MOCK_FINDMNT_FSTYPE="ext4" \
     MOCK_RESIZE2FS_LOG="${resize_log}" \
+    MOCK_PVS_PV_SIZE="2147483648" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE="0" \
     MOCK_GROWPART_OUTPUT="NOCHANGE: partition already fills the available space" \
     MOCK_GROWPART_STATUS="0" \
-    MOCK_LVEXTEND_OUTPUT="Insufficient free space: 0 extents needed, but only 0 available" \
-    MOCK_LVEXTEND_STATUS="5" \
+    MOCK_LVEXTEND_LOG="${temp_dir}/lvextend.log" \
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
   )"
 
   grep -q 'NOCHANGE: partition already fills the available space' <<<"${output}" || fail "expected NOCHANGE output to be printed"
-  grep -q 'Insufficient free space: 0 extents needed, but only 0 available' <<<"${output}" || fail "expected lvextend no-free-space output to be printed"
+  [ ! -f "${temp_dir}/lvextend.log" ] || fail "expected lvextend to be skipped when the volume group has no free space"
   [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to still run after growpart NOCHANGE"
 
   rm -rf "${temp_dir}"
@@ -361,7 +449,7 @@ test_grow_xfs_root_uses_xfs_growfs() {
   bin_dir="${temp_dir}/bin"
   xfs_log="${temp_dir}/xfs_growfs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -388,7 +476,7 @@ test_xfs_nochange_does_not_fail() {
   bin_dir="${temp_dir}/bin"
   xfs_log="${temp_dir}/xfs_growfs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -421,7 +509,7 @@ test_installs_missing_ext_tools() {
   apt_log="${temp_dir}/apt.log"
   resize_log="${temp_dir}/resize2fs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -454,7 +542,7 @@ test_installs_missing_xfs_tool() {
   apt_log="${temp_dir}/apt.log"
   xfs_log="${temp_dir}/xfs_growfs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -488,7 +576,7 @@ test_installs_missing_lvm_tools() {
   lvextend_log="${temp_dir}/lvextend.log"
   resize_log="${temp_dir}/resize2fs.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/sda3"
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
@@ -501,6 +589,9 @@ test_installs_missing_lvm_tools() {
     MOCK_APT_LOG="${apt_log}" \
     MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
     MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE="1073741824" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE="1073741824" \
     MOCK_PVRESIZE_LOG="${pvresize_log}" \
     MOCK_LVEXTEND_LOG="${lvextend_log}" \
     MOCK_RESIZE2FS_LOG="${resize_log}" \
@@ -518,6 +609,47 @@ test_installs_missing_lvm_tools() {
   rm -rf "${temp_dir}"
 }
 
+test_installs_lvm2_for_partial_lvm_toolchain() {
+  local temp_dir sys_root bin_dir apt_log pvresize_log lvextend_log resize_log output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  apt_log="${temp_dir}/apt.log"
+  pvresize_log="${temp_dir}/pvresize.log"
+  lvextend_log="${temp_dir}/lvextend.log"
+  resize_log="${temp_dir}/resize2fs.log"
+
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+  rm -f "${bin_dir}/lvextend"
+
+  output="$(
+    PATH="${bin_dir}" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_BIN_DIR="${bin_dir}" \
+    MOCK_APT_LOG="${apt_log}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE="1073741824" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE="1073741824" \
+    MOCK_PVRESIZE_LOG="${pvresize_log}" \
+    MOCK_LVEXTEND_LOG="${lvextend_log}" \
+    MOCK_RESIZE2FS_LOG="${resize_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  grep -q 'install -y lvm2' "${apt_log}" || fail "expected lvm2 to be installed when lvextend is missing"
+  [ "$(cat "${pvresize_log}")" = "/dev/sda3" ] || fail "expected pvresize to run after repairing the LVM toolchain"
+  [ "$(cat "${lvextend_log}")" = "-l +100%FREE /dev/mapper/vg-root" ] || fail "expected lvextend to run after repairing the LVM toolchain"
+  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run after repairing the LVM toolchain"
+  grep -q 'CHANGED: disk expanded' <<<"${output}" || fail "expected growpart output after partial lvm tool install"
+
+  rm -rf "${temp_dir}"
+}
+
 test_grow_nvme_root_uses_parent_disk_path() {
   local temp_dir sys_root bin_dir growpart_log output
   temp_dir="$(mktemp -d)"
@@ -525,7 +657,7 @@ test_grow_nvme_root_uses_parent_disk_path() {
   bin_dir="${temp_dir}/bin"
   growpart_log="${temp_dir}/growpart.log"
 
-  mkdir -p "${sys_root}/dm-0/slaves"
+  create_lvm_dm_sysfs "${temp_dir}"
   mkdir -p "${sys_root}/dm-0/slaves/nvme0n1p2"
   create_partition_sysfs "${temp_dir}" "nvme0n1p2" "nvme0n1" "2"
   make_mock_bin "${bin_dir}"
@@ -555,6 +687,7 @@ test_xfs_nochange_does_not_fail
 test_installs_missing_ext_tools
 test_installs_missing_xfs_tool
 test_installs_missing_lvm_tools
+test_installs_lvm2_for_partial_lvm_toolchain
 test_grow_nvme_root_uses_parent_disk_path
 
 echo "PASS: grow-root-filesystem helper"
