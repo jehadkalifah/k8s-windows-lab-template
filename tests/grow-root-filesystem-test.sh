@@ -25,10 +25,12 @@ create_partition_sysfs() {
 create_lvm_dm_sysfs() {
   local temp_dir="$1"
   local dm_name="${2:-dm-0}"
+  local dm_mapper_name="${3:-vg-root}"
   local sys_root="${temp_dir}/sys/class/block"
 
   mkdir -p "${sys_root}/${dm_name}/slaves" "${sys_root}/${dm_name}/dm"
   printf '%s\n' 'LVM-mock' >"${sys_root}/${dm_name}/dm/uuid"
+  printf '%s\n' "${dm_mapper_name}" >"${sys_root}/${dm_name}/dm/name"
 }
 
 make_mock_bin() {
@@ -632,6 +634,7 @@ test_installs_missing_lvm_tools() {
   create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
   make_mock_bin "${bin_dir}"
   rm -f "${bin_dir}/lvs" "${bin_dir}/pvresize" "${bin_dir}/lvextend"
+  rm -f "${bin_dir}/readlink"
 
   output="$(
     PATH="${bin_dir}" \

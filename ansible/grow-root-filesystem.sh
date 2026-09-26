@@ -3,10 +3,63 @@ set -euo pipefail
 
 SYS_CLASS_BLOCK_ROOT="${SYS_CLASS_BLOCK_ROOT:-/sys/class/block}"
 
+resolve_block_device_name() {
+  local device_path="$1"
+  local resolved_path=""
+  local device_name=""
+  local candidate_path candidate_name
+
+  if command -v readlink >/dev/null 2>&1; then
+    resolved_path="$(readlink -f "${device_path}" 2>/dev/null || true)"
+    if [ -n "${resolved_path}" ]; then
+      printf '%s\n' "${resolved_path##*/}"
+      return 0
+    fi
+  fi
+
+  device_name="${device_path##*/}"
+  if [[ "${device_path}" == /dev/mapper/* ]]; then
+    for candidate_path in "${SYS_CLASS_BLOCK_ROOT}"/dm-*; do
+      [ -d "${candidate_path}/dm" ] || continue
+      candidate_name="$(cat "${candidate_path}/dm/name" 2>/dev/null || true)"
+      if [ "${candidate_name}" = "${device_name}" ]; then
+        printf '%s\n' "${candidate_path##*/}"
+        return 0
+      fi
+    done
+  fi
+
+  printf '%s\n' "${device_name}"
+}
+
+resolve_parent_disk_name() {
+  local partition_device_name="$1"
+  local partition_path=""
+  local parent_disk_path=""
+
+  if command -v readlink >/dev/null 2>&1; then
+    partition_path="$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}" 2>/dev/null || true)"
+    if [ -n "${partition_path}" ]; then
+      parent_disk_path="${partition_path%/*}"
+      printf '%s\n' "${parent_disk_path##*/}"
+      return 0
+    fi
+  fi
+
+  set +e
+  parent_disk_path="$(cd "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/.." 2>/dev/null && pwd -P)"
+  set -e
+  if [ -z "${parent_disk_path}" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "${parent_disk_path##*/}"
+}
+
 resolve_backing_partition_device() {
   local current_device_name next_device_name
 
-  current_device_name="$(basename "$(readlink -f "$1")")"
+  current_device_name="$(resolve_block_device_name "$1")"
   while [ ! -f "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/partition" ] && [ -d "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/slaves" ]; do
     next_device_name="$(find "${SYS_CLASS_BLOCK_ROOT}/${current_device_name}/slaves" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -1 || true)"
     if [ -z "${next_device_name}" ]; then
@@ -27,7 +80,7 @@ is_lvm_root_source() {
   local root_source="$1"
   local root_device_name dm_uuid_path dm_uuid=""
 
-  root_device_name="$(basename "$(readlink -f "${root_source}")")"
+  root_device_name="$(resolve_block_device_name "${root_source}")"
   dm_uuid_path="${SYS_CLASS_BLOCK_ROOT}/${root_device_name}/dm/uuid"
   if [ -f "${dm_uuid_path}" ]; then
     dm_uuid="$(cat "${dm_uuid_path}" 2>/dev/null || true)"
@@ -122,7 +175,7 @@ lvextend_root_volume() {
 }
 
 grow_root_filesystem() {
-  local root_source root_fs partition_device partition_device_name partition_sysfs_path partition_number parent_disk_name parent_disk_device
+  local root_source root_fs partition_device partition_device_name partition_number parent_disk_name parent_disk_device
   local root_is_lvm=0
   local growpart_output=""
   local growpart_status=0
@@ -140,8 +193,7 @@ grow_root_filesystem() {
     return 0
   fi
   partition_device_name="$(basename "${partition_device}")"
-  partition_sysfs_path="$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}")"
-  parent_disk_name="$(basename "$(dirname "${partition_sysfs_path}")")"
+  parent_disk_name="$(resolve_parent_disk_name "${partition_device_name}" || true)"
   partition_number="$(cat "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/partition" 2>/dev/null || true)"
 
   if [ -z "${partition_device}" ] || [ -z "${parent_disk_name}" ] || [ -z "${partition_number}" ]; then
