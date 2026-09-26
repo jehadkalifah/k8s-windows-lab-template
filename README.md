@@ -324,10 +324,13 @@ Run:
 .\scripts\up.ps1
 ```
 
-Stage 1 creates only the three-node K3s cluster and kubeconfigs under path ".kube\".
+Stage 1 creates only the three-node K3s cluster and kubeconfigs under path:
+
+```powershell
+dir .kube\
+```
 
 It does **not** install Istio, MetalLB, Longhorn, Velero, MinIO, monitoring or applications.
-
 Verify:
 
 ```powershell
@@ -358,6 +361,13 @@ Verify after cluster creation:
 
 ```powershell
 .\scripts\check-flannel.ps1
+```
+
+After the cluster is in a known-good state, you can take VM snapshots by:
+
+```powershell
+. .\scripts\lab-config.ps1
+.\scripts\restore-point.ps1 create golden-clean -Level vm
 ```
 
 # Stage 2 — Deployments
