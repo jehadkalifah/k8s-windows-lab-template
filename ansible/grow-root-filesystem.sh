@@ -30,18 +30,28 @@ resolve_block_device_name() {
 
 resolve_parent_disk_name() {
   local partition_device_name="$1"
+  local parent_disk_path=""
+  local had_errexit=0
 
-  case "${partition_device_name}" in
-    *p[0-9]*)
-      printf '%s\n' "${partition_device_name%p[0-9]*}"
-      ;;
-    *[0-9])
-      printf '%s\n' "${partition_device_name%%[0-9]*}"
-      ;;
-    *)
-      return 1
+  case $- in
+    *e*)
+      had_errexit=1
+      set +e
       ;;
   esac
+  parent_disk_path="$(
+    cd -P "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}" 2>/dev/null &&
+    cd -P .. 2>/dev/null &&
+    pwd -P
+  )"
+  if [ "${had_errexit}" -eq 1 ]; then
+    set -e
+  fi
+  if [ -z "${parent_disk_path}" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "${parent_disk_path##*/}"
 }
 
 resolve_backing_partition_device() {
@@ -82,10 +92,18 @@ is_lvm_root_source() {
 
 read_lvm_value() {
   local value=""
+  local had_errexit=0
 
-  set +e
+  case $- in
+    *e*)
+      had_errexit=1
+      set +e
+      ;;
+  esac
   value="$("$@" 2>/dev/null)"
-  set -e
+  if [ "${had_errexit}" -eq 1 ]; then
+    set -e
+  fi
   value="${value//[[:space:]]/}"
   printf '%s\n' "${value}"
 }
@@ -97,6 +115,7 @@ pvresize_root_partition() {
   local updated_pv_size_bytes=""
   local command_output=""
   local command_status=0
+  local had_errexit=0
 
   current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"
   current_dev_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o dev_size "${partition_device}")"
@@ -104,10 +123,17 @@ pvresize_root_partition() {
     return 0
   fi
 
-  set +e
+  case $- in
+    *e*)
+      had_errexit=1
+      set +e
+      ;;
+  esac
   command_output="$(pvresize "${partition_device}" 2>&1)"
   command_status=$?
-  set -e
+  if [ "${had_errexit}" -eq 1 ]; then
+    set -e
+  fi
   printf '%s\n' "${command_output}"
 
   if [ "${command_status}" -eq 0 ]; then
@@ -131,6 +157,7 @@ lvextend_root_volume() {
   local updated_vg_free_bytes=""
   local command_output=""
   local command_status=0
+  local had_errexit=0
 
   root_vg_name="$(read_lvm_value lvs --noheadings -o vg_name "${root_source}")"
   if [ -n "${root_vg_name}" ]; then
@@ -140,10 +167,17 @@ lvextend_root_volume() {
     fi
   fi
 
-  set +e
+  case $- in
+    *e*)
+      had_errexit=1
+      set +e
+      ;;
+  esac
   command_output="$(lvextend -l +100%FREE "${root_source}" 2>&1)"
   command_status=$?
-  set -e
+  if [ "${had_errexit}" -eq 1 ]; then
+    set -e
+  fi
   printf '%s\n' "${command_output}"
 
   if [ "${command_status}" -eq 0 ]; then
@@ -167,6 +201,7 @@ grow_root_filesystem() {
   local root_is_lvm=0
   local growpart_output=""
   local growpart_status=0
+  local had_errexit=0
   local -a required_packages=()
 
   root_source="$(findmnt -n -o SOURCE / || true)"
@@ -219,10 +254,17 @@ grow_root_filesystem() {
     apt-get install -y "${required_packages[@]}"
   fi
 
-  set +e
+  case $- in
+    *e*)
+      had_errexit=1
+      set +e
+      ;;
+  esac
   growpart_output="$(growpart "${parent_disk_device}" "${partition_number}" 2>&1)"
   growpart_status=$?
-  set -e
+  if [ "${had_errexit}" -eq 1 ]; then
+    set -e
+  fi
   printf '%s\n' "${growpart_output}"
 
   if [ "${growpart_status}" -ne 0 ]; then
@@ -239,10 +281,18 @@ grow_root_filesystem() {
       resize2fs "${root_source}"
       ;;
     xfs)
-      set +e
+      had_errexit=0
+      case $- in
+        *e*)
+          had_errexit=1
+          set +e
+          ;;
+      esac
       growpart_output="$(xfs_growfs / 2>&1)"
       growpart_status=$?
-      set -e
+      if [ "${had_errexit}" -eq 1 ]; then
+        set -e
+      fi
       printf '%s\n' "${growpart_output}"
       if [ "${growpart_status}" -ne 0 ] && ! printf '%s\n' "${growpart_output}" | grep -Eiq 'data size unchanged|nothing to do'; then
         return "${growpart_status}"
