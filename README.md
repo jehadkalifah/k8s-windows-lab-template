@@ -249,7 +249,7 @@ cd D:\k8s-windows-lab-template
 The leading **dot + space** is required because it dot-sources
 `lab-config.ps1` into the current PowerShell session.
 
-Verify the complete network configuration:
+Verify the complete configurations:
 
 ```powershell
 $env:K8S_BRIDGE_ADAPTER
@@ -262,6 +262,15 @@ $env:K3S_API_LAN_IP
 
 $env:METALLB_POOL_START
 $env:METALLB_POOL_END
+
+$env:K8S_MASTER_CPUS
+$env:K8S_MASTER_MEM 
+$env:K8S_WORKER_CPUS
+$env:K8S_WORKER_MEM 
+
+$env:K8S_MASTER_DISK_MB
+$env:K8S_WORKER_DISK_MB
+$env:JENKINS_DISK_MB
 ```
 
 Expected configuration:
@@ -281,6 +290,15 @@ $env:K3S_API_LAN_IP = "192.168.100.210"
 
 $env:METALLB_POOL_START = "192.168.100.240"
 $env:METALLB_POOL_END   = "192.168.100.245"
+
+$env:K8S_MASTER_CPUS = "4"
+$env:K8S_MASTER_MEM  = "6144"
+$env:K8S_WORKER_CPUS = "4"
+$env:K8S_WORKER_MEM  = "10240"
+
+$env:K8S_MASTER_DISK_MB = "256000"
+$env:K8S_WORKER_DISK_MB = "256000"
+$env:JENKINS_DISK_MB = "256000"
 ```
 
 The VM interface roles are:
@@ -296,6 +314,32 @@ eth1 = 192.168.56.0/24
 eth2 = 192.168.100.0/24
        bridged physical LAN
        remote Kubernetes API + MetalLB
+```
+
+# Stage 1 — Base K3s Cluster
+
+Run:
+
+```powershell
+.\scripts\up.ps1
+```
+
+Stage 1 creates only the three-node K3s cluster and kubeconfigs under path ".kube\".
+
+It does **not** install Istio, MetalLB, Longhorn, Velero, MinIO, monitoring or applications.
+
+Verify:
+
+```powershell
+.\scripts\status.ps1
+```
+
+Expected:
+
+```text
+k3s-master    Ready
+k3s-worker1   Ready
+k3s-worker2   Ready
 ```
 
 Do not change `K3S_FLANNEL_IFACE` to `eth0`. VirtualBox normally assigns
@@ -314,32 +358,6 @@ Verify after cluster creation:
 
 ```powershell
 .\scripts\check-flannel.ps1
-```
-
-# Stage 1 — Base K3s Cluster
-
-Run:
-
-```powershell
-.\scripts\up.ps1
-```
-
-Stage 1 creates only the three-node K3s cluster and kubeconfigs.
-
-It does **not** install Istio, MetalLB, Longhorn, Velero, MinIO, monitoring or applications.
-
-Verify:
-
-```powershell
-.\scripts\status.ps1
-```
-
-Expected:
-
-```text
-k3s-master    Ready
-k3s-worker1   Ready
-k3s-worker2   Ready
 ```
 
 # Stage 2 — Deployments
