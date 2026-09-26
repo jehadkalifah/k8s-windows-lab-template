@@ -5,19 +5,15 @@ SYS_CLASS_BLOCK_ROOT="${SYS_CLASS_BLOCK_ROOT:-/sys/class/block}"
 
 resolve_block_device_name() {
   local device_path="$1"
-  local resolved_path=""
   local device_name=""
   local candidate_path candidate_name
 
-  if command -v readlink >/dev/null 2>&1; then
-    resolved_path="$(readlink -f "${device_path}" 2>/dev/null || true)"
-    if [ -n "${resolved_path}" ]; then
-      printf '%s\n' "${resolved_path##*/}"
-      return 0
-    fi
+  device_name="${device_path##*/}"
+  if [ -e "${SYS_CLASS_BLOCK_ROOT}/${device_name}" ]; then
+    printf '%s\n' "${device_name}"
+    return 0
   fi
 
-  device_name="${device_path##*/}"
   if [[ "${device_path}" == /dev/mapper/* ]]; then
     for candidate_path in "${SYS_CLASS_BLOCK_ROOT}"/dm-*; do
       [ -d "${candidate_path}/dm" ] || continue
@@ -34,26 +30,18 @@ resolve_block_device_name() {
 
 resolve_parent_disk_name() {
   local partition_device_name="$1"
-  local partition_path=""
-  local parent_disk_path=""
 
-  if command -v readlink >/dev/null 2>&1; then
-    partition_path="$(readlink -f "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}" 2>/dev/null || true)"
-    if [ -n "${partition_path}" ]; then
-      parent_disk_path="${partition_path%/*}"
-      printf '%s\n' "${parent_disk_path##*/}"
-      return 0
-    fi
-  fi
-
-  set +e
-  parent_disk_path="$(cd "${SYS_CLASS_BLOCK_ROOT}/${partition_device_name}/.." 2>/dev/null && pwd -P)"
-  set -e
-  if [ -z "${parent_disk_path}" ]; then
-    return 1
-  fi
-
-  printf '%s\n' "${parent_disk_path##*/}"
+  case "${partition_device_name}" in
+    *p[0-9]*)
+      printf '%s\n' "${partition_device_name%p[0-9]*}"
+      ;;
+    *[0-9])
+      printf '%s\n' "${partition_device_name%%[0-9]*}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 resolve_backing_partition_device() {
