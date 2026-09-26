@@ -90,6 +90,14 @@ is_lvm_root_source() {
   return 1
 }
 
+root_source_uses_device_mapper() {
+  local root_source="$1"
+  local root_device_name
+
+  root_device_name="$(resolve_block_device_name "${root_source}")"
+  [[ "${root_source}" == /dev/mapper/* ]] || [[ "${root_device_name}" == dm-* ]]
+}
+
 read_lvm_value() {
   local value=""
   local had_errexit=0
@@ -199,6 +207,7 @@ lvextend_root_volume() {
 grow_root_filesystem() {
   local root_source root_fs partition_device partition_device_name partition_number parent_disk_name parent_disk_device
   local root_is_lvm=0
+  local root_uses_device_mapper=0
   local growpart_output=""
   local growpart_status=0
   local had_errexit=0
@@ -226,8 +235,8 @@ grow_root_filesystem() {
 
   parent_disk_device="/dev/${parent_disk_name}"
 
-  if is_lvm_root_source "${root_source}"; then
-    root_is_lvm=1
+  if root_source_uses_device_mapper "${root_source}"; then
+    root_uses_device_mapper=1
     if ! command -v lvs >/dev/null 2>&1 || ! command -v pvs >/dev/null 2>&1 || ! command -v vgs >/dev/null 2>&1 || ! command -v pvresize >/dev/null 2>&1 || ! command -v lvextend >/dev/null 2>&1; then
       required_packages+=(lvm2)
     fi
@@ -252,6 +261,10 @@ grow_root_filesystem() {
       apt-get update
     fi
     apt-get install -y "${required_packages[@]}"
+  fi
+
+  if [ "${root_uses_device_mapper}" -eq 1 ] && is_lvm_root_source "${root_source}"; then
+    root_is_lvm=1
   fi
 
   case $- in

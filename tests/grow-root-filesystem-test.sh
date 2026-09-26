@@ -33,6 +33,94 @@ create_lvm_dm_sysfs() {
   printf '%s\n' "${dm_mapper_name}" >"${sys_root}/${dm_name}/dm/name"
 }
 
+create_install_lvm_mocks_script() {
+  local script_path="$1"
+
+  cat >"${script_path}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+target_dir="$1"
+
+cat >"${target_dir}/lvs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name" ]; then
+  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg-root}"
+  exit "${MOCK_LVS_STATUS:-0}"
+fi
+if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_LVS_OUTPUT}"
+fi
+exit "${MOCK_LVS_STATUS:-0}"
+INNER
+
+cat >"${target_dir}/pvs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    field="$2"
+    break
+  fi
+  shift
+done
+case "${field:-}" in
+  pv_size) printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}" ;;
+  dev_size) printf '%s\n' "${MOCK_PVS_DEV_SIZE:-2147483648}" ;;
+  *) exit 1 ;;
+esac
+INNER
+
+cat >"${target_dir}/vgs" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    field="$2"
+    break
+  fi
+  shift
+done
+case "${field:-}" in
+  vg_free) printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}" ;;
+  *) exit 1 ;;
+esac
+INNER
+
+cat >"${target_dir}/pvresize" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_PVRESIZE_LOG:-}" ]; then
+  printf '%s\n' "$1" >"${MOCK_PVRESIZE_LOG}"
+fi
+if [ -n "${MOCK_PVRESIZE_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_PVRESIZE_OUTPUT}"
+else
+  printf '%s\n' 'Physical volume "/dev/sda3" changed'
+fi
+exit "${MOCK_PVRESIZE_STATUS:-0}"
+INNER
+
+cat >"${target_dir}/lvextend" <<'INNER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${MOCK_LVEXTEND_LOG:-}" ]; then
+  printf '%s\n' "$*" >"${MOCK_LVEXTEND_LOG}"
+fi
+if [ -n "${MOCK_LVEXTEND_OUTPUT:-}" ]; then
+  printf '%s\n' "${MOCK_LVEXTEND_OUTPUT}"
+else
+  printf '%s\n' 'Logical volume successfully resized.'
+fi
+exit "${MOCK_LVEXTEND_STATUS:-0}"
+INNER
+
+/bin/chmod +x "${target_dir}/lvs" "${target_dir}/pvs" "${target_dir}/vgs" "${target_dir}/pvresize" "${target_dir}/lvextend"
+EOF
+
+  /bin/chmod +x "${script_path}"
+}
+
 make_mock_bin() {
   local bin_dir="$1"
   mkdir -p "${bin_dir}"
@@ -117,79 +205,8 @@ printf '%s\n' "${MOCK_GROWPART_OUTPUT:-CHANGED: disk expanded}"
 exit "${MOCK_GROWPART_STATUS:-0}"
 EOF
 
-  cat >"${bin_dir}/lvs" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name" ]; then
-  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg-root}"
-  exit "${MOCK_LVS_STATUS:-0}"
-fi
-if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
-  printf '%s\n' "${MOCK_LVS_OUTPUT}"
-fi
-exit "${MOCK_LVS_STATUS:-0}"
-EOF
-
-  cat >"${bin_dir}/pvs" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-o" ]; then
-    field="$2"
-    break
-  fi
-  shift
-done
-case "${field:-}" in
-  pv_size) printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}" ;;
-  dev_size) printf '%s\n' "${MOCK_PVS_DEV_SIZE:-2147483648}" ;;
-  *) exit 1 ;;
-esac
-EOF
-
-  cat >"${bin_dir}/vgs" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-o" ]; then
-    field="$2"
-    break
-  fi
-  shift
-done
-case "${field:-}" in
-  vg_free) printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}" ;;
-  *) exit 1 ;;
-esac
-EOF
-
-  cat >"${bin_dir}/pvresize" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ -n "${MOCK_PVRESIZE_LOG:-}" ]; then
-  printf '%s\n' "$1" >"${MOCK_PVRESIZE_LOG}"
-fi
-if [ -n "${MOCK_PVRESIZE_OUTPUT:-}" ]; then
-  printf '%s\n' "${MOCK_PVRESIZE_OUTPUT}"
-else
-  printf '%s\n' 'Physical volume "/dev/sda3" changed'
-fi
-exit "${MOCK_PVRESIZE_STATUS:-0}"
-EOF
-
-  cat >"${bin_dir}/lvextend" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ -n "${MOCK_LVEXTEND_LOG:-}" ]; then
-  printf '%s\n' "$*" >"${MOCK_LVEXTEND_LOG}"
-fi
-if [ -n "${MOCK_LVEXTEND_OUTPUT:-}" ]; then
-  printf '%s\n' "${MOCK_LVEXTEND_OUTPUT}"
-else
-  printf '%s\n' 'Logical volume successfully resized.'
-fi
-exit "${MOCK_LVEXTEND_STATUS:-0}"
-EOF
+  create_install_lvm_mocks_script "${bin_dir}/install-lvm-mocks"
+  "${bin_dir}/install-lvm-mocks" "${bin_dir}"
 
   cat >"${bin_dir}/resize2fs" <<'EOF'
 #!/usr/bin/env bash
@@ -232,80 +249,7 @@ INNER
         /bin/chmod +x "${MOCK_BIN_DIR}/growpart"
         ;;
       lvm2)
-        /bin/cat >"${MOCK_BIN_DIR}/lvs" <<'INNER'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ "${1:-}" = "--noheadings" ] && [ "${2:-}" = "-o" ] && [ "${3:-}" = "vg_name" ]; then
-  printf '%s\n' "${MOCK_LVS_VG_NAME:-vg-root}"
-  exit "${MOCK_LVS_STATUS:-0}"
-fi
-if [ -n "${MOCK_LVS_OUTPUT:-}" ]; then
-  printf '%s\n' "${MOCK_LVS_OUTPUT}"
-fi
-exit "${MOCK_LVS_STATUS:-0}"
-INNER
-        /bin/chmod +x "${MOCK_BIN_DIR}/lvs"
-        /bin/cat >"${MOCK_BIN_DIR}/pvs" <<'INNER'
-#!/usr/bin/env bash
-set -euo pipefail
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-o" ]; then
-    field="$2"
-    break
-  fi
-  shift
-done
-case "${field:-}" in
-  pv_size) printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}" ;;
-  dev_size) printf '%s\n' "${MOCK_PVS_DEV_SIZE:-2147483648}" ;;
-  *) exit 1 ;;
-esac
-INNER
-        /bin/chmod +x "${MOCK_BIN_DIR}/pvs"
-        /bin/cat >"${MOCK_BIN_DIR}/vgs" <<'INNER'
-#!/usr/bin/env bash
-set -euo pipefail
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-o" ]; then
-    field="$2"
-    break
-  fi
-  shift
-done
-case "${field:-}" in
-  vg_free) printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}" ;;
-  *) exit 1 ;;
-esac
-INNER
-        /bin/chmod +x "${MOCK_BIN_DIR}/vgs"
-        /bin/cat >"${MOCK_BIN_DIR}/pvresize" <<'INNER'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ -n "${MOCK_PVRESIZE_LOG:-}" ]; then
-  printf '%s\n' "$1" >"${MOCK_PVRESIZE_LOG}"
-fi
-if [ -n "${MOCK_PVRESIZE_OUTPUT:-}" ]; then
-  printf '%s\n' "${MOCK_PVRESIZE_OUTPUT}"
-else
-  printf '%s\n' 'Physical volume "/dev/sda3" changed'
-fi
-exit "${MOCK_PVRESIZE_STATUS:-0}"
-INNER
-        /bin/chmod +x "${MOCK_BIN_DIR}/pvresize"
-        /bin/cat >"${MOCK_BIN_DIR}/lvextend" <<'INNER'
-#!/usr/bin/env bash
-set -euo pipefail
-if [ -n "${MOCK_LVEXTEND_LOG:-}" ]; then
-  printf '%s\n' "$*" >"${MOCK_LVEXTEND_LOG}"
-fi
-if [ -n "${MOCK_LVEXTEND_OUTPUT:-}" ]; then
-  printf '%s\n' "${MOCK_LVEXTEND_OUTPUT}"
-else
-  printf '%s\n' 'Logical volume successfully resized.'
-fi
-exit "${MOCK_LVEXTEND_STATUS:-0}"
-INNER
-        /bin/chmod +x "${MOCK_BIN_DIR}/lvextend"
+        "${MOCK_BIN_DIR}/install-lvm-mocks" "${MOCK_BIN_DIR}"
         ;;
       e2fsprogs)
         /bin/cat >"${MOCK_BIN_DIR}/resize2fs" <<'INNER'
