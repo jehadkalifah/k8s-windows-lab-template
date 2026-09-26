@@ -59,6 +59,16 @@ INNER
 cat >"${target_dir}/pvs" <<'INNER'
 #!/usr/bin/env bash
 set -euo pipefail
+next_value_from_file() {
+  local file_path="$1"
+  local -a values=()
+  mapfile -t values <"${file_path}"
+  printf '%s\n' "${values[0]}"
+  : >"${file_path}"
+  for ((i = 1; i < ${#values[@]}; i++)); do
+    printf '%s\n' "${values[i]}" >>"${file_path}"
+  done
+}
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
     field="$2"
@@ -67,7 +77,13 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 case "${field:-}" in
-  pv_size) printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}" ;;
+  pv_size)
+    if [ -n "${MOCK_PVS_PV_SIZE_FILE:-}" ] && [ -f "${MOCK_PVS_PV_SIZE_FILE}" ]; then
+      next_value_from_file "${MOCK_PVS_PV_SIZE_FILE}"
+    else
+      printf '%s\n' "${MOCK_PVS_PV_SIZE:-1073741824}"
+    fi
+    ;;
   dev_size) printf '%s\n' "${MOCK_PVS_DEV_SIZE:-2147483648}" ;;
   *) exit 1 ;;
 esac
@@ -76,6 +92,16 @@ INNER
 cat >"${target_dir}/vgs" <<'INNER'
 #!/usr/bin/env bash
 set -euo pipefail
+next_value_from_file() {
+  local file_path="$1"
+  local -a values=()
+  mapfile -t values <"${file_path}"
+  printf '%s\n' "${values[0]}"
+  : >"${file_path}"
+  for ((i = 1; i < ${#values[@]}; i++)); do
+    printf '%s\n' "${values[i]}" >>"${file_path}"
+  done
+}
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
     field="$2"
@@ -84,7 +110,13 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 case "${field:-}" in
-  vg_free) printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}" ;;
+  vg_free)
+    if [ -n "${MOCK_VGS_VG_FREE_FILE:-}" ] && [ -f "${MOCK_VGS_VG_FREE_FILE}" ]; then
+      next_value_from_file "${MOCK_VGS_VG_FREE_FILE}"
+    else
+      printf '%s\n' "${MOCK_VGS_VG_FREE:-1073741824}"
+    fi
+    ;;
   *) exit 1 ;;
 esac
 INNER
@@ -443,6 +475,39 @@ test_pvresize_failure_still_fails_when_pv_does_not_grow() {
   rm -rf "${temp_dir}"
 }
 
+test_pvresize_failure_is_tolerated_when_pv_matches_device_after_retry_check() {
+  local temp_dir sys_root bin_dir resize_log pv_size_file output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  resize_log="${temp_dir}/resize2fs.log"
+  pv_size_file="${temp_dir}/pv-size-sequence.txt"
+
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+  printf '%s\n%s\n' '1073741824' '2147483648' >"${pv_size_file}"
+
+  output="$(
+    PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE_FILE="${pv_size_file}" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_PVRESIZE_STATUS="5" \
+    MOCK_RESIZE2FS_LOG="${resize_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run when pvresize failure is recovered by the post-check"
+  [ -z "$(cat "${pv_size_file}")" ] || fail "expected both pv_size sequence values to be consumed"
+  grep -q 'Physical volume "/dev/sda3" changed' <<<"${output}" || fail "expected pvresize output to be printed for the recovered failure path"
+
+  rm -rf "${temp_dir}"
+}
+
 test_lvextend_failure_still_fails_when_vg_free_remains() {
   local temp_dir sys_root bin_dir
   temp_dir="$(mktemp -d)"
@@ -465,6 +530,40 @@ test_lvextend_failure_still_fails_when_vg_free_remains() {
     bash -c 'source "'"${HELPER}"'"; grow_root_filesystem' >/dev/null 2>&1; then
     fail "expected grow_root_filesystem to fail when lvextend fails without consuming free extents"
   fi
+
+  rm -rf "${temp_dir}"
+}
+
+test_lvextend_failure_is_tolerated_when_vg_free_is_zero_after_retry_check() {
+  local temp_dir sys_root bin_dir resize_log vg_free_file output
+  temp_dir="$(mktemp -d)"
+  sys_root="${temp_dir}/sys/class/block"
+  bin_dir="${temp_dir}/bin"
+  resize_log="${temp_dir}/resize2fs.log"
+  vg_free_file="${temp_dir}/vg-free-sequence.txt"
+
+  create_lvm_dm_sysfs "${temp_dir}"
+  mkdir -p "${sys_root}/dm-0/slaves/sda3"
+  create_partition_sysfs "${temp_dir}" "sda3" "sda" "3"
+  make_mock_bin "${bin_dir}"
+  printf '%s\n%s\n' '1073741824' '0' >"${vg_free_file}"
+
+  output="$(
+    PATH="${bin_dir}:/usr/bin:/bin" \
+    SYS_CLASS_BLOCK_ROOT="${sys_root}" \
+    MOCK_FINDMNT_SOURCE="/dev/mapper/vg-root" \
+    MOCK_FINDMNT_FSTYPE="ext4" \
+    MOCK_PVS_PV_SIZE="2147483648" \
+    MOCK_PVS_DEV_SIZE="2147483648" \
+    MOCK_VGS_VG_FREE_FILE="${vg_free_file}" \
+    MOCK_LVEXTEND_STATUS="5" \
+    MOCK_RESIZE2FS_LOG="${resize_log}" \
+    bash -c 'source "'"${HELPER}"'"; grow_root_filesystem'
+  )"
+
+  [ "$(cat "${resize_log}")" = "/dev/mapper/vg-root" ] || fail "expected resize2fs to run when lvextend failure is recovered by the post-check"
+  [ -z "$(cat "${vg_free_file}")" ] || fail "expected both vg_free sequence values to be consumed"
+  grep -q 'Logical volume successfully resized.' <<<"${output}" || fail "expected lvextend output to be printed for the recovered failure path"
 
   rm -rf "${temp_dir}"
 }
@@ -712,7 +811,9 @@ test_grow_lvm_ext_root_resizes_logical_volume
 test_lvm_no_free_space_still_resizes_ext_filesystem
 test_direct_partition_growpart_nochange_still_resizes_ext_filesystem
 test_pvresize_failure_still_fails_when_pv_does_not_grow
+test_pvresize_failure_is_tolerated_when_pv_matches_device_after_retry_check
 test_lvextend_failure_still_fails_when_vg_free_remains
+test_lvextend_failure_is_tolerated_when_vg_free_is_zero_after_retry_check
 test_grow_xfs_root_uses_xfs_growfs
 test_xfs_nochange_does_not_fail
 test_installs_missing_ext_tools

@@ -129,16 +129,22 @@ pvresize_root_partition() {
   local partition_device="$1"
   local partition_device_name=""
   local current_pv_size_bytes=""
-  local current_partition_size_bytes=""
+  local current_dev_size_bytes=""
+  local current_resize_target_bytes=""
   local updated_pv_size_bytes=""
   local command_output=""
   local command_status=0
   local had_errexit=0
 
   partition_device_name="${partition_device##*/}"
-  if current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")" &&
-    current_partition_size_bytes="$(read_block_device_size_bytes "${partition_device_name}")"; then
-    if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_partition_size_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_partition_size_bytes}" ]; then
+  if current_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"; then
+    if current_dev_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o dev_size "${partition_device}")"; then
+      current_resize_target_bytes="${current_dev_size_bytes}"
+    else
+      current_resize_target_bytes="$(read_block_device_size_bytes "${partition_device_name}" || true)"
+    fi
+
+    if [ -n "${current_pv_size_bytes}" ] && [ -n "${current_resize_target_bytes}" ] && [ "${current_pv_size_bytes}" -ge "${current_resize_target_bytes}" ]; then
       return 0
     fi
   fi
@@ -161,7 +167,7 @@ pvresize_root_partition() {
   fi
 
   if updated_pv_size_bytes="$(read_lvm_value pvs --noheadings --units b --nosuffix -o pv_size "${partition_device}")"; then
-    if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_partition_size_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_partition_size_bytes}" ]; then
+    if [ -n "${updated_pv_size_bytes}" ] && [ -n "${current_resize_target_bytes}" ] && [ "${updated_pv_size_bytes}" -ge "${current_resize_target_bytes}" ]; then
       return 0
     fi
   fi
