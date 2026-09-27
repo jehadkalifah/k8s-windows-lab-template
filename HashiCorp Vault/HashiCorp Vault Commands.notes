@@ -892,3 +892,164 @@ cat /tmp/cert.json
 cat /tmp/cert.json | jq -r '.data.certificate' > app.crt
 cat /tmp/cert.json | jq -r '.data.private_key' > app.key
 cat /tmp/cert.json | jq -r '.data.issuing_ca' > ca.crt
+
+
+# TOTP Secrets Engine
+# One important distinction: the TOTP Secrets Engine is not the same thing as enabling MFA for Vault login. The secrets engine provides TOTP generation/validation functionality. Vault also has a separate TOTP MFA mechanism under its Identity system for requiring a second factor during authentication
+# For Vault’s TOTP Secrets Engine, there are two common modes:
+# 1. Vault generates TOTP codes from an existing TOTP secret.
+# 2. Vault acts as the TOTP provider, generating the secret and validating codes.
+vault secrets enable totp
+vault secrets list
+# Vault generates the TOTP secret
+# Create a TOTP key for a user in Vault:
+# Vault returns something like:
+# Key        Value
+# ---        -----
+# barcode    iVBORw0KGgoAAA...
+# url        otpauth://totp/MyCompany:admin@example.com?...
+# The URL contains the generated TOTP secret, and the barcode is the QR code encoded as base64. By default Vault uses a 30-second period and 6-digit codes
+vault write totp/keys/admin \
+    generate=true \
+    issuer="MyCompany" \
+    account_name="admin@example.com"
+# Check the key configuration:    
+vault read totp/keys/admin
+# List configured TOTP keys:
+vault list totp/keys
+# Generate a TOTP code from Vault
+# Key     Value
+# ---     -----
+# code    428193
+# The code changes according to the configured period, normally every 30 seconds
+vault read totp/code/admin
+# Validate a TOTP code
+# If you're using Vault as the TOTP provider and want Vault to validate a code:
+# Key      Value
+# ---      -----
+# valid    true
+vault write totp/code/admin code=297939
+# Custom settings
+# You can explicitly control the algorithm, digits, period, and validation skew:
+# Supported algorithms include SHA1, SHA256, and SHA512, while digits can be 6 or 8
+vault write totp/keys/admin \
+    generate=true \
+    issuer="MyCompany" \
+    account_name="admin@example.com" \
+    algorithm="SHA1" \
+    digits=6 \
+    period=30 \
+    skew=1
+# Delete the TOTP key
+vault delete totp/keys/admin
+
+# Setup would be Vault userpass + TOTP MFA
+# Enable userpass
+vault auth enable userpass
+# Create an example user:
+vault write auth/userpass/users/admin \
+    password="password123" \
+    policies="admin"
+# Get the userpass accessor:
+# Vault uses this accessor when binding Identity aliases and MFA enforcement to the auth mount
+USERPASS_ACCESSOR=$(vault auth list | awk '$1=="userpass/" {print $3}')
+echo "$USERPASS_ACCESSOR"
+vault auth list
+# Create an Identity entity for the user
+ENTITY_ID=$(vault write identity/entity name="admin" \
+  | awk '$1=="id" {print $2}')
+echo "$ENTITY_ID"
+# Then connect the Vault Identity entity to the admin userpass account:
+vault write identity/entity-alias \
+    name="admin" \
+    canonical_id="$ENTITY_ID" \
+    mount_accessor="$USERPASS_ACCESSOR"
+# Conceptually:
+# userpass user: admin
+#         |
+#         v
+# Identity Alias
+#         |
+#         v
+# Identity Entity
+#         |
+#         v
+# TOTP MFA Secret
+
+# The alias name for a userpass identity should match its username
+
+# Create the TOTP MFA method
+# I recommend SHA1 for maximum authenticator compatibility:
+# Vault's current TOTP Login MFA API supports SHA1, SHA256, or SHA512, with 6- or 8-digit codes.
+TOTP_METHOD_ID=$(vault write \
+  identity/mfa/method/totp \
+  method_name="userpass-totp" \
+  issuer="Vault" \
+  period=30 \
+  key_size=20 \
+  algorithm=SHA1 \
+  digits=6 \
+  | awk '$1=="method_id" {print $2}')
+echo "$TOTP_METHOD_ID"
+# You can check the method:
+vault read identity/mfa/method/totp/$TOTP_METHOD_ID
+# Generate TOTP enrollment for admin
+# Now generate the MFA secret specifically for the admin Identity entity
+vault write -format=json \
+    identity/mfa/method/totp/admin-generate \
+    method_id="$TOTP_METHOD_ID" \
+    entity_id="$ENTITY_ID" \
+    > /tmp/totp-enrollment.json
+cat /tmp/totp-enrollment.json
+# The admin-generate endpoint stores that TOTP secret against the specified Identity entity.    
+# Vault returns:
+# {
+#   "data": {
+#     "barcode": "...",
+#     "url": "otpauth://totp/..."
+#   }
+# } 
+
+# Optionally, to destroy that enrollment
+vault write \
+    identity/mfa/method/totp/admin-destroy \
+    method_id="$TOTP_METHOD_ID" \
+    entity_id="$ENTITY_ID"
+
+# To save the QR code:
+# Important: admin-generate should only be run once for that entity/method unless you intentionally destroy and regenerate the enrollment. Vault requires the existing secret to be removed before replacing it.
+# You can scan the QR code with a compatible authenticator app
+awk -F'"' '/"barcode":/ {print $4}' /tmp/totp-enrollment.json \
+    | base64 -d > /tmp/qr-code.png
+ls -lh /tmp/qr-code.png
+# Enforce TOTP for userpass
+# Now create the login enforcement:
+vault write identity/mfa/login-enforcement/userpass-totp \
+    mfa_method_ids="$TOTP_METHOD_ID" \
+    auth_method_accessors="$USERPASS_ACCESSOR"
+# Check:
+# This means every login through this particular userpass mount requires the configured MFA method
+# You should see roughly:
+# auth_method_accessors    [auth_userpass_xxxxx]
+# mfa_method_ids           [4746fb81-....]
+# name                     userpass-totp
+vault read identity/mfa/login-enforcement/userpass-totp
+# The QR code has been copied locally for scanning with an authenticator app
+kubectl -n vault cp vault-0:/tmp/qr-code.png .\qr-code.png
+# Test login
+# Vault asks for the password
+# After the password succeeds, it should ask for the TOTP
+vault login -method=userpass username=admin
+
+
+
+
+
+
+
+
+
+vault write \
+    identity/mfa/method/totp/admin-generate \
+    method_id="$TOTP_METHOD_ID" \
+    entity_id="$ENTITY_ID"
