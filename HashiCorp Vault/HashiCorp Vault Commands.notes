@@ -852,6 +852,43 @@ SELECT current_user;
 create database ro;
 
 
-
-
-
+# PKI Secrets Engine
+# https://developer.hashicorp.com/vault/tutorials/pki/pki-engine
+vault secrets enable pki
+vault secrets list
+# Set the maximum certificate lifetime for the PKI mount
+# The default or the max least TTL for any certificates on the route will be ten years
+vault secrets tune -max-lease-ttl=87600h pki
+# Generate a root CA:
+# Vault keeps the root CA private key internally
+vault write pki/root/generate/internal \
+    common_name="example.com" \
+    ttl=87600h > /tmp/CA_cert.pem
+vault read pki/cert/ca    
+cat /tmp/CA_cert.pem
+# Then configure the certificate and CRL URLs:
+vault write pki/config/urls \
+    issuing_certificates="http://localhost:8200/v1/pki/ca" \
+    crl_distribution_points="http://localhost:8200/v1/pki/crl"
+# Create a role that allows certificates for example.com and its subdomains:
+vault write pki/roles/example-com \
+    allowed_domains="example.com" \
+    allow_subdomains=true \
+    max_ttl="72h"    
+# Now issue a certificate:
+vault write pki/issue/example-com \
+    common_name="www.example.com" \
+    ttl="24h"
+# You can also request SANs:
+vault write pki/issue/example-com \
+    common_name="app.example.com" \
+    alt_names="api.example.com,www.example.com" \
+    ttl="24h"
+# To save the generated material into files:
+vault write -format=json pki/issue/example-com \
+    common_name="app.example.com" \
+    ttl="24h" > /tmp/cert.json        
+cat /tmp/cert.json
+cat /tmp/cert.json | jq -r '.data.certificate' > app.crt
+cat /tmp/cert.json | jq -r '.data.private_key' > app.key
+cat /tmp/cert.json | jq -r '.data.issuing_ca' > ca.crt
