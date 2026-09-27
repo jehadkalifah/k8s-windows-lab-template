@@ -804,17 +804,52 @@ aws s3 ls s3://my-app-bucket
 vault secrets enable -path=postgres database
 vault secrets list
 # Configure the PostgreSQL connection
+# The reason that we want to use username/password variables is that so they don't show up when we do a read against this path, because we don't want other people to know the username and password
+# postgresql is the name of the connection configuration (db name)
 vault write postgres/config/postgresql \
     plugin_name="postgresql-database-plugin" \
     allowed_roles="readonly" \
     connection_url="postgresql://{{username}}:{{password}}@127.0.0.1:5432/postgres?sslmode=disable" \
     username="vault_admin" \
     password="VaultAdminPassword"
+# Create Postgres role under name ro
+psql -h host-postgres -U postgres -d postgres    
+# Then run:
+CREATE ROLE ro NOLOGIN;
+GRANT CONNECT ON DATABASE postgres TO ro;
+GRANT USAGE ON SCHEMA public TO ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT ON TABLES TO ro;
+# Check:
+\du
 
-
-
-
-
+# Create Vault DB role
+# db_name="postgresql" should match the name of the connection configuration defined above
+vault write postgres/roles/readonly \
+    db_name="postgresql" \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' INHERIT; GRANT ro TO \"{{name}}\";" \
+    default_ttl="1h" \
+    max_ttl="24h"
+# Read configuration and role to verify its configuration
+vault read postgres/config/postgresql
+vault read postgres/roles/readonly
+# Optionally to update the role
+vault write postgres/roles/readonly revocation_statements="DROP ROLE IF EXISTS \"{{name}}\";"
+# Rotate the root credentials for the PostgreSQL connection
+# It will change the root credentials for the PostgreSQL connection
+vault write -f postgres/rotate-root/postgresql
+# Generate credentials
+vault read postgres/creds/readonly
+# Revoke the generated credentials
+vault lease revoke <lease_id>
+vault lease revoke -prefix postgres/creds/readonly
+# Connect to the database using the generated credentials
+psql -h host-postgres -U <generated_username> -W -d postgres
+# Verify the connection to the database using the generated credentials
+SELECT current_user;
+\conninfo
+create database ro;
 
 
 
