@@ -566,3 +566,257 @@ vault read aws/creds/data-consultant
 
 # oracle-reporting role we created
 vault read database/creds/oracle-reporting
+
+
+# Secrets Engine
+vault secrets enable kv
+vault secrets enable kv-v2
+vault secrets enable -path=training kv
+vault secrets enable -path=training -version=2 kv
+vault secrets list -detailed
+
+# You can upgrade a KV v1 secrets engine to a KV v2
+vault kv enable-versioning training/
+
+# How is KV V2 Different?
+# The data/and metadata/prefix is required for accessing the API and when writing Vault policies
+# Introduces two prefixes that must be accounted for when referencing secrets and/or metadata
+# - kv2/data data is where the actual K/V data is stored
+# - kv2/metadata the metadata prefix stores our metadata about a secret
+
+# Working with KV using the CLI
+vault kv put secret/demo username="demo" password="<password>"  # write data to the KV like create 
+vault kv get secret/demo
+vault kv metadata get secret/demo
+vault kv metadata put -custom-metadata=env=dev secret/demo
+# to permanently delete all the metadata and versions for your key
+vault kv metadata delete secret/demo
+vault kv get -format=json kv/app/db
+vault kv get -version=3 kv/app/db
+vault kv list secret
+vault kv delete secret/demo
+vault kv undelete -version=3 secret/demo # no change in version number
+vault kv rollback -version=1 secret/demo # version number is set back to 1
+vault kv patch secret/demo  password="<password>" # add a specific key in the KV like update
+vault kv destroy secret/demo  # permanently destroy data There's no coming back from that unless you restore from backup
+vault kv destroy -version=1 secret/demo  # permanently destroy data There's no coming back from that unless you restore from backup
+vault kv put kv/app/db@secrets.json
+{
+  "pass": "123",
+  "user": "admin",
+  "api": "a8ee4b50cce124"
+}
+
+
+# Cubbyhole Secrets Engine is used to store arbitrary secrets
+# Cubbyhole Secrets Engine cannot be disabled, moved, or enabled multiple times
+# - Each service token gets its own cubbyhole
+# - A token cannot access another token's cubbyhole
+# - Cubbyhole expires when the token does
+vault write cubbyhole/training certification=associate
+vault read cubbyhole/training
+# Instead of sending secrets over the network, you can use cubbyhole's response wrapping feature
+# Enables the retrieval of secrets from a path and Vault will store them inside of another token's cubbyhole
+# - This token is called the wrapping token
+# - The wrapping token is temporary and limited by a TTL
+# - It is also a single-use token
+# The wrapping token can be sent across the network and the user can unwrap the token to retrieve the real data (secrets)
+# privacy by ensuring that any secret transmitted across the network is not the actual secret
+# malfeasance detection by ensuring that only a single party can unwrap the token and gain access to the secrets (because it's a single-use token)
+# limitation of the life time of the secret exposure because the wrapping token has a defined TTL
+# You can get static or dynamic secrets using response wrapping
+vault kv get -wrap-ttl=5m secrets/certification/associate
+vault token lookup hvs.CAESIDgPWW9ok_h4KHGh2cyObTJ4WW
+vault unwrap <wrapping-token>
+# root token
+vault login hvs.efKwelHBrZaucJE4M3dyuhIa
+vault token create -policy=default
+vault login hvs.CAESIPveBLh_3zcCT253onLORgKrZAlZBsCoFSThkwbVkvsdGh4KHGh2cy5mdEV6N0tuSmVoNGtmN1ZLRkpGYTlkcXM
+# After login with this token, you should know that we have access to cubbyhole
+vault write cubbyhole/training certification=associate
+vault read cubbyhole/training 
+# root token (cat ~/.vault-token or rm ~/.vault-token)
+vault login hvs.efKwelHBrZaucJE4M3dyuhIa
+# there's no value there because now that we're logged in as the root token, well again the root token has its own cubbyhole
+vault read cubbyhole/training 
+# Granting temporary access to secrets/app
+vault kv get secrets/app
+vault kv get -wrap-ttl=5m secrets/app
+# wrapping_token: hvs.CAESIMy7ykjQqWHvkAtAMAT9Zjdom9hq7tiDVOgjMBFqBePCGh4KHGh2cy50aEVvMWtmVVFESWNaU1VFUU1aVW11ekk
+# num_uses            1
+# ttl                 4m5s
+vault token lookup hvs.CAESIMy7ykjQqWHvkAtAMAT9Zjdom9hq7tiDVOgjMBFqBePCGh4KHGh2cy50aEVvMWtmVVFESWNaU1VFUU1aVW11ekk
+# Login as a default user that create a default token above
+vault login hvs.CAESIPveBLh_3zcCT253onLORgKrZAlZBsCoFSThkwbVkvsdGh4KHGh2cy5mdEV6N0tuSmVoNGtmN1ZLRkpGYTlkcXM
+vault unwrap hvs.CAESIMy7ykjQqWHvkAtAMAT9Zjdom9hq7tiDVOgjMBFqBePCGh4KHGh2cy50aEVvMWtmVVFESWNaU1VFUU1aVW11ekk
+# <wrapping-token>
+# It will get the values of that secret
+# Key         Value
+# ---         -----
+# data        map[password:admin321 url:https://my-app:8080 username:admin]
+# metadata    map[created_time:2026-09-07T19:32:32.273596892Z custom_metadata:<nil> deletion_time:
+# destroyed:false version:4]
+# Because it only num_uses 1, you can use it once again 
+vault unwrap hvs.CAESIMy7ykjQqWHvkAtAMAT9Zjdom9hq7tiDVOgjMBFqBePCGh4KHGh2cy50aEVvMWtmVVFESWNaU1VFUU1aVW11ekk
+
+
+# Transit Secrets Engine (KMS KEY)
+# Transit secrets engine provides functions for encrypting/decrypting data
+# Applications can send cleartext data (All plaintext data must be base64-encoded) to Vault for encryption
+# - Vault encrypts using the specified key and returns ciphertext to the app
+# - The application NEVERhas access to the encryption key (stored in Vault)
+# - Decouples storage from encryption and access control
+# The Transit Secrets engine is not a database
+# The idea is that applications send clear text data (All plaintext data must be base64-encoded) to vault to encrypt it with this specific encryption key, Vault just sends the encrypted data back to the application and then the application can go store it wherever
+# Encryption keys are created and stored in Vault to process data (encryption/decryption operations)
+# - Each application can have its own encryption key (or more!)
+# - Apps must have permission to use the key for encryption/decryption operations, which is bound by the policy attached to its token
+vault secrets enable transit
+# The next step is to create one or many encryption keys used to encrypt/decrypt data
+vault write -f transit/keys/vault_training
+vault write -f transit/keys/training_rsatype="rsa-4096"
+# Pass the cleartext data to Vault –specifying the actionand desired encryption key to use
+# Key          Value
+# -----        ---
+# ciphertext   vault:v1:Fpyph6C7r5MUILiEiFhCobsGeh…………Cwt0mct1ttLokqikAr0PAg=  <-- So that's exactly what you want to store in db
+# key_version  1
+vault write transit/encrypt/training \
+      plaintext=$(base64 <<< "Getting Started with HashiCorp Vault")
+# Pass the ciphertext data to Vault –specifying the actionand desired encryption key to use for decryption operations
+# Key          Value
+# -----        ---
+# plaintext    R2V0dGluZyBTdGFydGVkIHdpdGggSGFzaGlDb3JwIFZhdWx0Cg==
+vault write transit/decrypt/training \
+      ciphertext="vault:v1:Fpyph6C7r5MUILiEiFhCoJBxelQbsGeEahal5LhDPSoN6HkTO………"
+printf 'R2V0dGluZyBTdGFydGVkIHdpdGggSGFzaGlDb3JwIFZhdWx0Cg==' | base64 -d
+# Rotating Encryption Keys
+# changing the encryption keys used to protect data, reducing the risk if an old key is compromised
+# Rotate an Encryption Key
+vault write -f transit/keys/training/rotate
+vault read transit/keys/training
+# Setting the Minimum Decryption Version
+vault write transit/keys/training/config \
+      min_decryption_version=4
+# Rewrapping Ciphertext
+# encrypting already-encrypted data again with a new encryption key, without decrypting the actual data
+# Key          Value
+# -----        ---
+# ciphertext   vault:v1:Fpyph6C7r5MUILiEiFhCobsGeh…………Cwt0mct1ttLokqikAr0PAg=  
+# key_version  4
+vault write transit/rewrap/training \
+      ciphertext="vault:v1:Fpyph6C7r5M......."
+
+
+# AWS IAM User Method
+# https://developer.hashicorp.com/vault/docs/auth/aws
+vault secrets enable aws 
+vault secrets list
+vault write aws/config/client \
+    secret_key=vCtSM8ZUEQ3mOFVlYPBQkf2sO6F/W7a5TVzrl3Oj \
+    access_key=VKIAJBRHKH6EVTTNXDHA \
+    region=us-west-2 
+vault read aws/config/client
+vault write -f aws/config/rotate-client 
+vault read aws/config/client
+vault write aws/roles/read-only \
+    credential_type=iam_user \
+    policy_arns="arn:aws:iam::aws:policy/ReadOnlyAccess"
+vault read aws/roles/read-only 
+vault read aws/creds/read-only
+# vault lease revoke <lease_id>
+vault lease revoke aws/creds/read-only/xxxxxxxx 
+# If you want to revoke all active leases under that role
+vault lease revoke -prefix aws/creds/read-only/
+
+# AWS Role Method
+# First, create an AWS IAM role "VaultS3AccessRole" and attach this permission policy to that AWS role
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::my-app-bucket"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::my-app-bucket/*"
+    }
+  ]
+}
+# Then configure the IAM role trust policy so the AWS identity used by Vault can assume it
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:user/vault-user"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+# The Vault AWS identity also needs permission to assume that role:
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::123456789012:role/VaultS3AccessRole"
+    }
+  ]
+}
+
+vault secrets enable aws 
+vault secrets list
+vault write aws/roles/s3-access \
+    credential_type=assumed_role \
+    role_arns="arn:aws:iam::123456789012:role/VaultS3AccessRole"
+vault read aws/roles/s3-access
+# Generate temporary AWS credentials
+vault write aws/sts/s3-access ttl=1h
+# You should receive something similar to:
+# Key                Value
+# ---                -----
+# lease_id           aws/sts/s3-access/xxxxxxxx
+# lease_duration     1h
+# access_key         ASIAxxxxxxxxxxxx
+# secret_key         xxxxxxxxxxxxxxxxxxxx
+# session_token      xxxxxxxxxxxxxxxxxxxx
+export AWS_ACCESS_KEY_ID="ASIAxxxxxxxx"
+export AWS_SECRET_ACCESS_KEY="xxxxxxxx"
+export AWS_SESSION_TOKEN="xxxxxxxx"
+aws sts get-caller-identity
+aws s3 ls 
+aws s3 ls s3://my-app-bucket
+
+# Database Secret Engine (Postgres)
+# Enable the database secrets engine
+vault secrets enable -path=postgres database
+vault secrets list
+# Configure the PostgreSQL connection
+vault write postgres/config/postgresql \
+    plugin_name="postgresql-database-plugin" \
+    allowed_roles="readonly" \
+    connection_url="postgresql://{{username}}:{{password}}@127.0.0.1:5432/postgres?sslmode=disable" \
+    username="vault_admin" \
+    password="VaultAdminPassword"
+
+
+
+
+
+
+
+
+
+
