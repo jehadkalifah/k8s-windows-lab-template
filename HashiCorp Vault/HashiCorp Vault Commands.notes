@@ -1043,13 +1043,69 @@ vault login -method=userpass username=admin
 
 
 
+# Vault Secrets Operator
+
+# What is the Vault Secrets Operator?
+# The application just reads secrets from a regular Kubernetes secrets, and then the operator handles everything behind the scenes
+# The Vault Secrets Operator (VSO) enables Kubernetes pods to read Vault-based secrets natively from Kubernetes Secrets
+# - A Kubernetes-native controller that syncs secrets from Vault into Kubernetes Secrets (one-way sync)
+# - Rather than have pods go directly to vault, they can read secrets natively from Kubernetes Secrets
+# - Designed to make Vault secrets first-clase citizens in Kubernetes environments
+┌───────────────────┐
+│  HashiCorp Vault  │
+│   Secret / KV     │
+└─────────┬─────────┘
+          │ 1. Sync
+          ▼
+┌───────────────────┐
+│ Vault Secrets     │
+│ Operator (VSO)    │
+└─────────┬─────────┘
+          │
+          ▼
+┌───────────────────────────┐
+│    Kubernetes Cluster     │
+│                           │
+│   ┌───────────────────┐   │
+│   │ Kubernetes Secret │   │
+│   └─────────┬─────────┘   │
+│             │ 2. Read     │
+│        ┌────┼────┐        │
+│        ▼    ▼    ▼        │
+│      [Pod] [Pod] [Pod]    │
+└───────────────────────────┘
+
+# Supports Syncing from Multiple Secret Sources (Automatic secret drift and remediation when changes occur in Vault)
+# Update Secrets When Workloads are Deployed (Supports Deployment, ReplicaSet, and StatefulSetresource types in Kubernetes)
+# Watches for custom Kubernetes resources (CRDs) (efined by a CRD such as VaultStaticSecretor VaultDynamicSecretand will sync to a Kubernetes Secret)
+
+┌──────────────────────────────────────┐
+│          Kubernetes Cluster          │
+│                                      │
+│  ┌──────────────┐   ┌─────────────┐  │
+│  │    CRDs      │──►│     VSO     │  │
+│  │              │ 1 │             │  │
+│  │ Tell VSO:    │   │ Watches CRDs│  │
+│  │ - what sync  │   └──────┬──────┘  │
+│  │ - where put  │          │ 2.Get   │
+│  └──────────────┘          ▼         │
+│                         ┌───────┐    │
+│                         │ Vault │    │
+│                         │Source │    │
+│                         └───┬───┘    │
+│                             │ 3.Sync │
+│                             ▼        │
+│                      ┌────────────┐  │
+│                      │ K8s Secret │  │
+│                      └─────┬──────┘  │
+│                            │ 4.Read  │
+│                            ▼         │
+│                    ┌──────────────┐  │
+│                    │ Application  │  │
+│                    │    Pod       │  │
+│                    └──────────────┘  │
+└──────────────────────────────────────┘
 
 
 
 
-
-
-vault write \
-    identity/mfa/method/totp/admin-generate \
-    method_id="$TOTP_METHOD_ID" \
-    entity_id="$ENTITY_ID"
