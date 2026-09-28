@@ -1106,6 +1106,88 @@ vault login -method=userpass username=admin
 │                    └──────────────┘  │
 └──────────────────────────────────────┘
 
+# Vault Agent Injector vs. Vault Secrets Operator
+# There are different methods for integrating Vault with Kubernetes
+# - Most teams choose between the Vault Agent Injector and the Vault Secrets Operator for Kubernetes integration
+# - VSO is the newer option and is gaining popularity with teams using GitOps and declarative infrastructure models
+
+# Vault Agent Injector
+# - Uses the sidecar pattern to modify pod specifications by injecting a Vault Agent container. Writes secrets to a shared volume
+# - Applications read secrets from the shared volume
+        ┌───────────────┐
+        │ HashiCorp     │
+        │ Vault         │
+        └──────┬────────┘
+               │ 1. Read
+               ▼
+┌─────────────────────────────┐
+│       Kubernetes Pod        │
+│                             │
+│  ┌──────────┐ ┌──────────┐  │
+│  │   App    │ │  Vault   │  │
+│  │Container │ │  Agent   │  │
+│  └────┬─────┘ └────┬─────┘  │
+│       │ 3.Read     │ 2.Write│
+│       └──────┬─────┘        │
+│              ▼              │
+│       ┌─────────────┐       │
+│       │Shared Volume│       │
+│       └─────────────┘       │
+└─────────────────────────────┘
+
+# When to Choose Vault Agent Injector over the Vault Secrets Operator
+# This method is a strong fit when you need tight control over how and when secrets are injected. Choose it when your app or environment demands file-based secrets, renewal control, or more runtime flexibility.
+# - Your app requires secrets as files (e.g., TLS certs)
+# - You want runtime secret injection per pod lifecycle
+# - You prefer a sidecar pattern for tighter control
+# - You need fine-grained renewal control or template rendering
+
+# Vault Secrets Operator
+# - Uses a Kubernetes Secrets Operator with CRDs that is responsible for syncing Vault secrets to Kubernetes Secrets
+# - Applications read secrets natively from Kubernetes Secrets
+# - CRDs such as VaultStaticSecretor. VaultDynamicSecretand that created over all Kubernetes namespaces
+        ┌───────────────┐
+        │ HashiCorp     │
+        │ Vault         │
+        └──────┬────────┘
+               │ 1. Sync / Read
+               ▼
+        ┌───────────────┐
+        │      VSO      │
+        │ Watches CRDs  │
+        └──────┬────────┘
+               │ 2. Create / Update
+               ▼
+        ┌────────────────┐
+        │ Kubernetes     │
+        │ Secret         │
+        └──────┬─────────┘
+               │ 3. Read
+               ▼
+        ┌────────────────┐
+        │ Application    │
+        │ Pod            │
+        └────────────────┘
+# When to Choose Vault Secrets Operator over the Vault Agent Injector
+# If you prefer a simpler, more declarative approach that integrates easily with GitOps or CI/CD pipelines, the Vault Secrets Operator might be the better fit. It works best when you want secrets to feel native to Kubernetes
+# - You want a GitOps-friendly, declarative approach
+# - You prefer using native Kubernetes Secrets, or your applications require it
+# - You want more straightforward integration without sidecars or dealing with mutating webhooks
+# - You're managing many apps across teams with centralized sync logic
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
