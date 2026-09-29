@@ -831,9 +831,10 @@ vault write postgres/roles/readonly \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' INHERIT; GRANT ro TO \"{{name}}\";" \
     default_ttl="1h" \
     max_ttl="24h"
-# Read configuration and role to verify its configuration
+# Read configuration, credentials and role to verify its configuration
 vault read postgres/config/postgresql
 vault read postgres/roles/readonly
+vault read postgres/creds/readonly
 # Optionally to update the role
 vault write postgres/roles/readonly revocation_statements="DROP ROLE IF EXISTS \"{{name}}\";"
 # Rotate the root credentials for the PostgreSQL connection
@@ -1176,18 +1177,426 @@ vault login -method=userpass username=admin
 # - You're managing many apps across teams with centralized sync logic
 
 
+# How Do I Install the Vault Secrets Operator?
+# Using the Helm chart is the recommended method for installing and configuring the VSO
+# The Vault Secrets Operator is installed in a separate namespace such as vault-secrets-operator
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm repo update
+helm search repo hashicorp/vault-secrets-operator
+helm search repo -l hashicorp/vault-secrets-operator
+helm install --version 1.6.0 --create-namespace \
+             --namespace vault-secrets-operator \
+             vault-secrets-operator hashicorp/vault-secrets-operator
+# Verify the Vault Secrets Operator is Running
+kubectl -n vault-secrets-operator get pods 
+kubectl get crds | grep secrets.hashicorp.com
+
+# Prerequisites for Vault Secrets Operator Authentication with Kubernetes
+# Static Secrets Authentication with Kubernetes
+# Note: role: vso-auth will rely on enabling the Kubernetes auth method in Vault and creating a corresponding role that maps to this service account
+# Enabling the Kubernetes auth method in Vault
+vault auth enable kubernetes
+# Configure it when Vault is running inside the Kubernetes cluster
+# Vault can automatically use the pod's mounted service-account token and CA certificate when running inside Kubernetes
+vault write auth/kubernetes/config \
+    kubernetes_host="https://192.168.100.210:6443"
+# Verify
+vault read auth/kubernetes/config
+# Displying ServiceAccount used by your Vault pod
+kubectl -n vault get serviceaccounts
+kubectl -n vault get pod vault-0 -o jsonpath='{.spec.serviceAccountName}{"\n"}'
+# Creating a role in Vault that maps to the Kubernetes service account
+vault write auth/kubernetes/role/vso-auth \
+    bound_service_account_names=vault \
+    # The namespace of the Kubernetes service account that this role will be bound to
+    # bound_service_account_namespaces="vault,default,dev*" 
+    bound_service_account_namespaces="*" 
+    policies="default,vso-policy" \
+    ttl=24h
+# Verify
+vault read auth/kubernetes/role/vso-auth
+# Enable KV Secrets Engine
+vault secrets enable -path=secret -description="KV v2 Secrets Engine" kv-v2
+vault secrets list
+# Create a secret in the KV v2 engine
+vault kv put secret/my-secret username="my-user" password="my-password"
+# Creating a policy in Vault that can be associated with the Kubernetes role
+# For example, if your KV v2 secret engine is mounted at "secret/", the policy should reference "secret/data/*" to access all data within the KV v2 engine
+vault policy write vso-policy - <<EOF
+# KV v2 secrets
+path "secret/data/*" {
+  capabilities = ["read", "list"]
+}
+
+path "secret/metadata/*" {
+  capabilities = ["read", "list"]
+}
+
+# PostgreSQL dynamic credentials
+path "postgres/creds/readonly" {
+  capabilities = ["read"]
+}
+
+# PKI certificate issuance
+path "pki/issue/pki-role" {
+  capabilities = ["create", "update"]
+}  
+EOF
+# Verify
+vault read sys/policies/acl/vso-policy
+
+# Dynamic Secrets Authentication with Kubernetes
+# Enable the database secrets engine
+vault secrets enable -path=postgres -description="PostgreSQL Database Secrets Engine" database
+vault secrets list
+# Configure the PostgreSQL connection
+# The reason that we want to use username/password variables is that so they don't show up when we do a read against this path, because we don't want other people to know the username and password
+# postgresql is the name of the connection configuration (db name)
+vault write postgres/config/postgresql \
+    plugin_name="postgresql-database-plugin" \
+    allowed_roles="readonly" \
+    connection_url="postgresql://{{username}}:{{password}}@127.0.0.1:5432/postgres?sslmode=disable" \
+    username="vault_admin" \
+    password="VaultAdminPassword"
+# verify
+vault read postgres/config/postgresql
+# Create Postgres role under name ro
+psql -h host-postgres -U postgres -d postgres    
+# Then run:
+CREATE ROLE ro NOLOGIN;
+GRANT CONNECT ON DATABASE postgres TO ro;
+GRANT USAGE ON SCHEMA public TO ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT ON TABLES TO ro;
+# Check:
+\du
+# Create Vault DB role
+# db_name="postgresql" should match the name of the connection configuration defined above
+vault write postgres/roles/readonly \
+    db_name="postgresql" \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' INHERIT; GRANT ro TO \"{{name}}\";" \
+    default_ttl="1h" \
+    max_ttl="24h"
+# verify
+vault read postgres/roles/readonly
+# Read the generated credentials for the readonly role
+vault read postgres/creds/readonly
+
+# VaultPKISecret
+# Enable PKI Secrets Engine
+# https://developer.hashicorp.com/vault/tutorials/pki/pki-engine
+vault secrets enable pki -description="PKI secrets engine for issuing certificates"
+vault secrets list
+# Set the maximum certificate lifetime for the PKI mount
+# The default or the max least TTL for any certificates on the route will be ten years
+vault secrets tune -max-lease-ttl=87600h pki
+# Generate a root CA:
+# Vault keeps the root CA private key internally
+vault write pki/root/generate/internal \
+    common_name="example.com" \
+    ttl=87600h > /tmp/CA_cert.pem
+vault read pki/cert/ca    
+cat /tmp/CA_cert.pem
+# Then configure the certificate and CRL URLs:
+vault write pki/config/urls \
+    issuing_certificates="http://localhost:8200/v1/pki/ca" \
+    crl_distribution_points="http://localhost:8200/v1/pki/crl"
+# Create a role that allows certificates for example.com and its subdomains:
+vault write pki/roles/pki-role \
+    allowed_domains="example.com" \
+    allow_subdomains=true \
+    max_ttl="72h"    
+       
+
+
+# Configuring Connectivity and Authentication
+# STEP01: Configuring Access to Vault
+# Just like any other Vault client, the Vault Secrets Operator needs to know where Vault is located and how to authenticate in order to retrieve secrets for Kubernetes workloads
+              ┌──────────────────┐
+              │ HashiCorp Vault  │
+              └────────┬─────────┘
+                       ▲
+                       │ Authenticate
+                       │ + Read Secrets
+                       │
+┌──────────────────────┴──────────────────────┐
+│              Kubernetes Cluster             │
+│                                             │
+│        ┌──────────────────────────┐         │
+│        │ Vault Secrets Operator   │         │
+│        └──────────────────────────┘         │
+│                                             │
+└─────────────────────────────────────────────┘
+
+Address : https://vault.example.com:8200
+Auth    : kubernetes
+Role    : vso-role
+
+# Supported Auth Methods
+# - The Vault Secrets Operator supports multiple authentication methods to connect to Vault
+# - Choosing the correct method depends on your environment and how you want to manage access
+# - VSO uses these auth methods to authenticate to Vault and retrieve secrets on behalf of your Kubernetes workloads
+# 1- Kubernetes = Authenticate workloads running in Kubernetes
+# 2- JWT        = Authenticate using JSON Web Tokens
+# 3- AppRole    = Authenticate applications using RoleID + SecretID
+# 4- AWS        = Authenticate AWS workloads/instances
+# 5- GCP        = Authenticate Google Cloud workloads
+
+# VaultConnection
+# This CRD provides the configuration details to connect to a single Vault cluster
+# All secret replication resources rely on VaultConnectionas the foundational config for connecting to Vault and syncing secrets to the target namespace
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: connection-vault
+  namespace: vault
+spec:
+  address: http://vault-active.vault.svc.cluster.local:8200
+  skipTLSVerify: false
+# Verify 
+kubectl -n vault get VaultConnection
+
+# STEP02: VaultAuth 
+# A Custom Resource Definition (CRD) that provides the configuration for VSO to authenticate against the Vault cluster
+# The VaultAuthresource configures how the operator authenticates to Vault using methods like Kubernetes or AppRole. It includes a vaultConnectionRefto associate it with the correct VaultConnection
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: vault-auth
+  namespace: vault
+spec:
+  vaultConnectionRef: connection-vault
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: vso-auth
+    serviceAccount: vault
+  allowedNamespaces:
+    - default
+    - vault 
+    - "*"
+
+# Verify 
+kubectl -n vault get VaultAuth
+
+# STEP03: Sync a Secret
+# Vault Secret Custom Resource Definitions (CRDs)
+# - VaultStaticSecret: This CRD defines how the operator syncs a single static secretfrom Vault to a Kubernetes Secret (KVv1 or KVv2)
+# - VaultDynamicSecret: This CRD syncs a dynamic Vault secret—generated on demand—to a Kubernetes Secret (Database, AWS or GCP)  
+# - VaultPKISecret: This CRD configures the operator to generate a certificate using the PKI engine and sync it to a Kubernetes Secret (PKI)
+
+# VaultStaticSecret
+# Sync a single static secret from Vault’s KV engine to a Kubernetes Secret 
+# The VaultStaticSecretCRD is used for KVv1 or KVv2 secrets that don’t change often and are manually managed
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: my-static-secret
+  namespace: default
+spec:
+  # vaultAuthRef: <namespace>/<name> of the VaultAuth resource to use for authentication
+  vaultAuthRef: vault/vault-auth
+  mount: secret
+  path: my-secret
+  type: kv-v2
+  destination:
+    create: true
+    # Name of the Kubernetes Secret to create
+    name: my-k8s-secret
+  refreshAfter: 1h
+# Verify
+kubectl -n default get VaultStaticSecret 
+kubectl -n default describe VaultStaticSecret my-static-secret
+kubectl -n default get secret my-k8s-secret
+kubectl -n default describe secret my-k8s-secret
+# Simple example to test VaultStaticSecret
+# Create a ServiceAccount for the Vault Secrets Operator for every namespace where it needs to access secrets
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: default
+
+---  
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-vault-secret
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-vault-secret
+  template:
+    metadata:
+      labels:
+        app: test-vault-secret
+    spec:
+      # Optional: specify the ServiceAccount for the Vault Secrets Operator
+      serviceAccountName: vault
+      containers:
+        - name: test
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - sleep 3600
+          envFrom:
+            - secretRef:
+                name: my-k8s-secret
+
+# VaultDynamicSecret
+# Dynamically generate and sync credentials like database or cloud access keys
+# The VaultDynamicSecretCRD is best for secrets that need to be generated on demand from dynamic secrets engines
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultDynamicSecret
+metadata:
+  name: my-db-secret
+  namespace: default
+spec:
+  # vaultAuthRef: <namespace>/<name> of the VaultAuth resource to use for authentication
+  vaultAuthRef: vault/vault-auth
+  mount: postgres
+  # path must point to the credentials endpoint
+  path: creds/readonly
+  destination:
+    create: true
+    name: my-dynamic-db-secret
+  refreshAfter: 30m
+# Simple example to test VaultDynamicSecret
+# Create a ServiceAccount for the Vault Secrets Operator for every namespace where it needs to access secrets
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: default
+
+---  
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-dynamic-secret
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-dynamic-secret
+  template:
+    metadata:
+      labels:
+        app: test-dynamic-secret
+    spec:
+      # Optional: specify the ServiceAccount for the Vault Secrets Operator
+      serviceAccountName: vault
+      containers:
+        - name: test
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - sleep 3600
+          envFrom:
+            - secretRef:
+                name: my-dynamic-db-secret
+# Verify              
+kubectl -n default get VaultDynamicSecret
+kubectl -n default describe VaultDynamicSecret my-db-secret
+kubectl -n default get secret my-dynamic-db-secret
+kubectl -n default describe secret my-dynamic-db-secret
+
+# VaultPKISecret
+# Generate TLS certificates using Vault’s PKI engine and sync them into Kubernetes
+# The VaultPKISecretCRD is ideal for automating short-lived certificates directly into Kubernetes
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultPKISecret
+metadata:
+  name: my-pki-cert
+  namespace: default
+spec:
+  vaultAuthRef: vault/vault-auth
+  mount: pki
+  role: pki-role
+  commonName: web.internal.example.com
+  destination:
+    create: true
+    name: my-pki-secret
+  ttl: 24h
+# Simple example to test VaultPKISecret
+# Create a ServiceAccount for the Vault Secrets Operator for every namespace where it needs to access secrets
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: default
+
+---  
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pki-secret
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-pki-secret
+  template:
+    metadata:
+      labels:
+        app: test-pki-secret
+    spec:
+      containers:
+        - name: test
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - sleep 3600
+          volumeMounts:
+            - name: pki-secret
+              # /etc/tls/certificate   → server certificate
+              # /etc/tls/private_key   → private key
+              # /etc/tls/issuing_ca    → CA / issuing certificate            
+              mountPath: /etc/tls
+              readOnly: true
+      volumes:
+        - name: pki-secret
+          secret:
+            secretName: my-pki-secret
+# Verify                         
+kubectl -n default get VaultPKISecret
+kubectl -n default describe VaultPKISecret my-pki-cert
+kubectl -n default get secret my-pki-secret
+kubectl -n default describe secret my-pki-secret
+
+# Vault Secrets Operator (Additional Features)
 
 
 
-
-
-
-
-
-
-
-
-
-
+vault secrets enable pki -description="PKI secrets engine for issuing certificates"
+vault secrets list
+# Set the maximum certificate lifetime for the PKI mount
+# The default or the max least TTL for any certificates on the route will be ten years
+vault secrets tune -max-lease-ttl=87600h pki
+# Generate a root CA:
+# Vault keeps the root CA private key internally
+vault write pki/root/generate/internal \
+    common_name="example.com" \
+    ttl=87600h > /tmp/CA_cert.pem
+vault read pki/cert/ca    
+cat /tmp/CA_cert.pem
+# Then configure the certificate and CRL URLs:
+vault write pki/config/urls \
+    issuing_certificates="http://localhost:8200/v1/pki/ca" \
+    crl_distribution_points="http://localhost:8200/v1/pki/crl"
+# Create a role that allows certificates for example.com and its subdomains:
+vault write pki/roles/pki-role \
+    allowed_domains="example.com" \
+    allow_subdomains=true \
+    max_ttl="72h"    
+       
 
 
