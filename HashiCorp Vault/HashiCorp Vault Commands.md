@@ -1573,30 +1573,84 @@ kubectl -n default get secret my-pki-secret
 kubectl -n default describe secret my-pki-secret
 
 # Vault Secrets Operator (Additional Features)
+# - Instant Updates (Only Supports the VaultStaticSecrets CRD): 
+#   - Secrets update automatically when they change in Vault—no restart required
+#   - Stay in sync with real-time updates triggered by changes in Vault
+# - Encrypted Client Cache
+#   - Secrets are stored securely inmemory with encryption
+#   - Reduces API calls and speeds up access while keeping data protected
+# - Secret Transformation
+#   - Customize how secrets are formatted before reaching Kubernetes
+#   - Rename keys, filter values, or reshape data to match app needs
+
++----------------------------------+-----------------+------------------+
+| Feature                          | Vault Community | Vault Enterprise |
++----------------------------------+-----------------+------------------+
+| Encrypted Client Cache           | Yes             | Yes              |
++----------------------------------+-----------------+------------------+
+| Secret Transformation (VSO)      | Yes             | Yes              |
++----------------------------------+-----------------+------------------+
+| Instant Updates / Vault Events   | No              | Yes              |
++----------------------------------+-----------------+------------------+
+
+# Instant Updates (Only Supports the VaultStaticSecrets CRD)
+# Secrets update automatically when they change in Vault—no restart required
+# Vault Secrets Operator supports near real-time updates by watching for changes in Vault and immediately syncing them to Kubernetes Secrets—no pod restart or manual refresh needed       
+# It does this by subscribing to Vault Event Notifications 
+![Instant Updates](./images/InstantUpdates.jpg)
+
+# Encrypted Client Cache
+# Faster access with in-memory encryption and fewer Vault calls. Secrets are stored securely in memory using encryption, reducing latency and API calls to Vault
+┌──────────────────────────────────────────────┐
+│ In-Memory Caching                            │
+│ Secrets are stored in memory for fast access │
+│ without repeatedly calling Vault.            │
+└──────────────────────┬───────────────────────┘
+                       │
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│ Encrypted Secret Storage                     │
+│ Cached secrets are encrypted to protect      │
+│ sensitive data at runtime.                   │
+└──────────────────────┬───────────────────────┘
+                       │
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│ Improved Performance                         │
+│ Reduces Vault API load and speeds up secret  │
+│ delivery to workloads.                       │
+└──────────────────────────────────────────────┘
+
+![Encrypted Client Cache](./images/EncryptedClientCache.jpg)
+
+# Secret Transformation
+# Customize how secrets are delivered to fit your application’s needs
+┌──────────────────────────────────────────────────────────┐
+│ Flexible Output Formats                                  │
+│ Transform secret data into key-value pairs that          │
+│ your applications expect.                                │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│ Rename & Restructure                                     │
+│ Rename fields or adjust the secret structure before      │
+│ writing it to Kubernetes.                                │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│ Filter Unused Data                                       │
+│ Exclude unneeded keys to reduce noise and improve        │
+│ clarity.                                                 │
+└──────────────────────────────────────────────────────────┘
+
+![Secret Transformation](./images/SecretTransformation.jpg)
 
 
-
-vault secrets enable pki -description="PKI secrets engine for issuing certificates"
-vault secrets list
-# Set the maximum certificate lifetime for the PKI mount
-# The default or the max least TTL for any certificates on the route will be ten years
-vault secrets tune -max-lease-ttl=87600h pki
-# Generate a root CA:
-# Vault keeps the root CA private key internally
-vault write pki/root/generate/internal \
-    common_name="example.com" \
-    ttl=87600h > /tmp/CA_cert.pem
-vault read pki/cert/ca    
-cat /tmp/CA_cert.pem
-# Then configure the certificate and CRL URLs:
-vault write pki/config/urls \
-    issuing_certificates="http://localhost:8200/v1/pki/ca" \
-    crl_distribution_points="http://localhost:8200/v1/pki/crl"
-# Create a role that allows certificates for example.com and its subdomains:
-vault write pki/roles/pki-role \
-    allowed_domains="example.com" \
-    allow_subdomains=true \
-    max_ttl="72h"    
-       
 
 
