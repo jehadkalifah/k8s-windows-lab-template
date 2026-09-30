@@ -1652,5 +1652,53 @@ kubectl -n default describe secret my-pki-secret
 ![Secret Transformation](./images/SecretTransformation.jpg)
 
 
+# Vault Replication (Only available in Vault Enterprise)
+# What is Vault Replication?
+# Organizations usually have infrastructure that spans multiple datacenters
+# - Vault needs to be highly-available for application access
+# - Needs to scale as organizations continue to add use cases and apps
+# - Common set of policies that are enforced globally
+# - Consistent set of secrets and configurations available to applications that need them regardless of data center 
+# - Replication operates on a leader-follower model (primaries and secondaries)
+# - The primary cluster acts as the system of record and replicates most Vault data asynchronously
+# - All communication between primaries and secondaries is end-to-end encrypted with mutually-authenticated TLS sessions
 
+![Vault Replication](./images/VaultReplication01.jpg)
 
+# Vault Replication Types
+# 01. Performance Replication
+# - Replicates the underlying configuration, policies, and other data
+# - Ability to service reads from client requests
+# - Clients will authenticate to the performance-replicated cluster separately
+# - Does not replicate tokens or leases to performance secondaries
+
+![Vault Replication](./images/VaultReplication02.jpg)
+
+# 02. Disaster Recovery Replication
+# - Replicates the underlying configuration, policies, and all other data
+# - Cannot service reads from client requests
+# - Clients should authenticate with the primary cluster only (or a perf cluster)
+# - Will replicate tokens and leases created on the primary cluster
+# - Provides a warm-standby cluster where EVERYTHING is replicated to the DR secondary cluster(s)
+# - DR clusters DO NOT respond to clients unless they are promoted to a primary cluster
+# - Even as an admin or using a root token, most paths on a secondary cluster are disabled, meaning you can't do much of anything on a DR cluster
+
+![Vault Replication](./images/VaultReplication03.jpg)
+
+# Comparison
+![Vault Replication](./images/VaultReplication04.jpg)
+
+# Replication Architecture
+![Vault Replication](./images/VaultReplication05.jpg)
+
+# Networking Requirements
+# - Communication between clusters must be permitted to allow replication, RPC forwarding, and cluster bootstrapping to work as expected
+# - If using DNS, each cluster must be able to resolve the name of the other cluster
+
+![Vault Replication](./images/VaultReplication06.jpg)
+
+![Vault Replication](./images/VaultReplication07.jpg)
+
+# How Do We Set All of this Up?
+
+![Vault Replication](./images/VaultReplication08.jpg)
