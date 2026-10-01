@@ -1728,7 +1728,7 @@ kubectl -n default describe secret my-pki-secret
 # 1- Activate DR Replication
 vault write -f sys/replication/dr/primary/enable
 # 2- Create the Secondary Token
-# <id> Name it what you want
+# <id> Name it what you want eg. us-east-dr
 vault write sys/replication/dr/primary/secondary-token id=<id>
 # 3- Activate the Secondary Cluster
 # <token> Provide token from primary cluster (command above)
