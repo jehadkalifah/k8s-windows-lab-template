@@ -1699,6 +1699,45 @@ kubectl -n default describe secret my-pki-secret
 
 ![Vault Replication](./images/VaultReplication07.jpg)
 
+
+
 # How Do We Set All of this Up?
 
 ![Vault Replication](./images/VaultReplication08.jpg)
+
+# Activating DR Replication
+# - Replication is NOT enabled by default, so you must enable it on each cluster that will participate in the replica set
+# - Enables an internal root CA on the primary Vault cluster - creates a root certificate and client cert
+# - Vault creates a mutual TLS connection between the nodes using self-signed certificates and keys from the internal CA – NOT the same TLS configured for the listener
+#   - If Vault sits behind a load balancer that is terminating TLS, it will break the mutual TLS between the nodes if inter-cluster traffic is forced through the load balancer
+
+# Secondary Token
+# - A secondary token is required to permit a secondary cluster to replicate from the primary cluster
+# - Due to its sensitivity, the secondary token is protected with response wrapping
+# - Multiple people should “have eyes” on the secondary token once it’s been issued until it is submitted to the secondary cluster
+# - Once the token is successfully used, it is useless (single-use token)
+# - The secondary token includes information such as:
+#   - The redirect address of the primary cluster
+#   - The client certificate and CA certificate
+
+# How is the Secondary Token Used?
+
+![Vault Replication](./images/VaultReplication09.jpg)
+
+# Configure Replication on the CLI
+# 1- Activate DR Replication
+vault write -f sys/replication/dr/primary/enable
+# 2- Create the Secondary Token
+# <id> Name it what you want
+vault write sys/replication/dr/primary/secondary-token id=<id>
+# 3- Activate the Secondary Cluster
+# <token> Provide token from primary cluster (command above)
+vault write sys/replication/dr/secondary/enable token=<token>
+
+# Monitor Replication
+# Check Status of ALL Replication
+vault read -format=json sys/replication/status
+# Check Status of Performance Replication
+vault read -format=json sys/replication/performance/status
+# Check Status of DR Replication
+vault read -format=json sys/replication/dr/status
